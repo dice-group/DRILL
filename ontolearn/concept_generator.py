@@ -94,9 +94,9 @@ class ConceptGenerator:
         elif concept.form == 'ObjectComplementOf':
             assert concept.name[0] == '¬'
             return concept.concept_a
-        elif concept.name == 'Thing':
+        elif concept.name == '⊤':
             return self.nothing
-        elif concept.name == 'Nothing':
+        elif concept.name == '⊥':
             return self.thing
 
         else:

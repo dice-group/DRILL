@@ -33,7 +33,7 @@ def parse_tbox_into_concepts(onto) -> Tuple[Dict, Any, Any]:
     from .concept import Concept
     iri_to_concept = dict()
     individuals = set()
-
+    #⊤ ⊥
     thing = Concept(name='⊤', form='Class', iri=str(Thing.iri),
                     instances={i.iri for i in Thing.instances(world=onto.world)})
     nothing = Concept(name='⊥', form='Class', iri=str(Nothing.iri), instances=set())

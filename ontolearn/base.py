@@ -72,7 +72,7 @@ class KnowledgeBase(AbstractKnowledgeBase):
 
         # 3. Get all sub concepts of input concept.
         for owlready_subclass_concept_A in owl_concept.descendants(include_self=False):
-            if owlready_subclass_concept_A.name in ['Nothing', 'Thing']:
+            if owlready_subclass_concept_A.name in ['Nothing', 'Thing', 'T', '⊥']:
                 raise ValueError
             has_sub_concept = True
             # 3.2 Map them into the corresponding our Concept objects.
@@ -122,8 +122,15 @@ class KnowledgeBase(AbstractKnowledgeBase):
         2) self.down_top_concept_hierarchy is a mapping from Concept objects to set of Concept objects that are
         direct superclasses of given Concept object.
         """
-
+        # 1. (Mapping from string URI to Class Expressions, Thing Concept, Nothing Concept
         self.uri_to_concept, self.thing, self.nothing = parse_tbox_into_concepts(onto)
+        assert len(self.uri_to_concept) > 2
+
+        assert self.thing.iri == 'http://www.w3.org/2002/07/owl#Thing'
+        assert self.thing.name == '⊤'
+
+        assert self.nothing.iri == 'http://www.w3.org/2002/07/owl#Nothing'
+        assert self.nothing.name == '⊥'
 
         self.individuals = self.thing.instances
         self.down_top_concept_hierarchy[self.thing] = set()
@@ -134,6 +141,8 @@ class KnowledgeBase(AbstractKnowledgeBase):
                 assert len(onto.search(iri=IRI)) == 1
             except AssertionError:
                 # Thing and Nothing is not added into hierarchy
+                assert IRI in ['http://www.w3.org/2002/07/owl#Thing','http://www.w3.org/2002/07/owl#Nothing']
+                assert concept_A.name in ['⊤', '⊥']
                 continue
             owlready_concept_A = onto.search(iri=concept_A.iri)[0]
             assert owlready_concept_A.iri == concept_A.iri
