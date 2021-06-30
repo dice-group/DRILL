@@ -6,7 +6,7 @@ To foster further reproducible research and alleviate hardware requirements to r
 # Installation
 Create a anaconda virtual environment and install dependencies.
 ```
-git clone https://github.com/Anonym-researcher/DRILL
+git clone https://github.com/dice-group/DRILL
 # Create anaconda virtual enviroment
 conda create -n drill_env python=3.9
 # Active virtual enviroment 
