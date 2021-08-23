@@ -461,7 +461,8 @@ class AbstractDrill(ABC):
 
     def __init__(self, path_of_embeddings, reward_func, drill_first_out_channels=32, gamma=1.0, learning_rate=.001,
                  num_episode=None, num_of_sequential_actions=2, max_len_replay_memory=1024,
-                 relearn_ratio=1, representation_mode=None, batch_size=1024, epsilon_decay=.001,
+                 relearn_ratio=1, use_illustrations=False, representation_mode=None, batch_size=1024,
+                 epsilon_decay=.001,
                  num_epochs_per_replay=50, num_episodes_per_replay=25, num_workers=32):
         self.drill_first_out_channels = drill_first_out_channels
         self.instance_embeddings = read_csv(path_of_embeddings)
@@ -489,6 +490,7 @@ class AbstractDrill(ABC):
         self.epsilon_min = 0
         self.batch_size = batch_size
         self.relearn_ratio = relearn_ratio
+        self.use_illustrations = use_illustrations
 
         # will be filled
         self.optimizer = None  # e.g. torch.optim.Adam(self.model_net.parameters(), lr=self.learning_rate)
@@ -730,6 +732,12 @@ class AbstractDrill(ABC):
                     '{0}.th episode. SumOfRewards: {1:.2f}\tEpsilon:{2:.2f}\t|ReplayMem.|:{3}'.format(th, sum(rewards),
                                                                                                       self.epsilon, len(
                             self.experiences)))
+                self.logger.info(f'{th}.th episode. Trajectory starts')
+                print(f'{th}.th episode. Trajectory starts')
+                for s, s_next in sequence_of_states:
+                    self.logger.info(s)
+                    print(s)
+                self.logger.info(f'{th}.th episode. Trajectory ends')
 
             # (3.2) Form experiences for Experience Replay
             self.form_experiences(sequence_of_states, rewards)
@@ -743,7 +751,6 @@ class AbstractDrill(ABC):
             self.epsilon -= self.epsilon_decay
             if self.epsilon < self.epsilon_min:
                 break
-
         return sum_of_rewards_per_actions
 
     def exploration_exploitation_tradeoff(self, current_state: BaseNode, next_states: List[BaseNode]) -> BaseNode:
@@ -923,10 +930,13 @@ class AbstractDrill(ABC):
                                                                       len(positives), len(negatives)))
                 # 2.
                 print(f'RL training on {counter}.th learning problem starts')
-                goal_path = list(reversed(retrieve_concept_chain(target_node)))
+                if self.use_illustrations:
+                    print('USE ILLUSTRATION')
+                    goal_path = list(reversed(retrieve_concept_chain(target_node)))
+                else:
+                    goal_path = None
                 sum_of_rewards_per_actions = self.rl_learning_loop(pos_uri=positives, neg_uri=negatives,
                                                                    goal_path=goal_path)
-
                 print(f'Sum of Rewards in first 3 trajectory:{sum_of_rewards_per_actions[:3]}')
                 print(f'Sum of Rewards in last 3 trajectory:{sum_of_rewards_per_actions[-3:]}')
                 self.seen_examples.setdefault(counter, dict()).update(

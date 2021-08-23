@@ -26,7 +26,6 @@ from argparse import ArgumentParser
 import os
 import json
 
-
 class Trainer:
     def __init__(self, args):
         sanity_checking_args(args)
@@ -66,6 +65,7 @@ class Trainer:
                                      num_epochs_per_replay=self.args.num_epochs_per_replay,
                                      relearn_ratio=self.args.relearn_ratio,
                                      batch_size=self.args.batch_size, learning_rate=self.args.learning_rate,
+                                     use_illustrations=self.args.use_illustrations,
                                      verbose=self.args.verbose,
                                      num_workers=self.args.num_workers)
         self.save_config(drill_average.storage_path)
@@ -99,7 +99,7 @@ if __name__ == '__main__':
     parser.add_argument("--num_episodes_per_replay", type=int, default=10, help='Number of episodes per repay')
     parser.add_argument('--num_of_sequential_actions', type=int, default=3, help='Length of the trajectory.')
     parser.add_argument('--relearn_ratio', type=int, default=2, help='# of times lps are reused.')
-
+    parser.add_argument('--use_illustrations', default=False, type=eval, choices=[True, False])
     # The next two params shows the flexibility of our framework as agents can be continuously trained
     parser.add_argument('--pretrained_drill_avg_path', type=str,
                         default='', help='Provide a path of .pth file')

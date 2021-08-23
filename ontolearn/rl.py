@@ -5,7 +5,7 @@ from .util import *
 from .search import SearchTreePriorityQueue
 from .refinement_operators import LengthBasedRefinement
 from .metrics import F1
-from .heuristics import Reward
+from .heuristics import Reward, SparseReward
 import time
 import json
 import pandas as pd
@@ -18,6 +18,7 @@ from torch.functional import F
 from typing import Set, Tuple
 from torch.nn.init import xavier_normal_
 import random
+
 random.seed(1)
 
 
@@ -33,7 +34,8 @@ class DrillAverage(AbstractDrill, BaseConceptLearner):
                  pretrained_model_path=None, iter_bound=None, max_num_of_concepts_tested=None, verbose=None,
                  terminate_on_goal=True, ignored_concepts=None,
                  max_len_replay_memory=None, batch_size=None, epsilon_decay=None,
-                 num_epochs_per_replay=None, num_episodes_per_replay=None, learning_rate=None, relearn_ratio=None,
+                 num_epochs_per_replay=None, num_episodes_per_replay=None, learning_rate=None,
+                 relearn_ratio=None, use_illustrations=None,
                  max_runtime=None, num_of_sequential_actions=None, num_episode=None, num_workers=32):
 
         if refinement_operator is None:
@@ -41,7 +43,7 @@ class DrillAverage(AbstractDrill, BaseConceptLearner):
         AbstractDrill.__init__(self,
                                path_of_embeddings=path_of_embeddings,
                                drill_first_out_channels=drill_first_out_channels,
-                               reward_func=Reward(),
+                               reward_func=Reward(),  # SparseReward()
                                gamma=gamma,
                                max_len_replay_memory=max_len_replay_memory,
                                batch_size=batch_size,
@@ -50,6 +52,7 @@ class DrillAverage(AbstractDrill, BaseConceptLearner):
                                representation_mode='averaging',
                                epsilon_decay=epsilon_decay,
                                relearn_ratio=relearn_ratio,
+                               use_illustrations=use_illustrations,
                                num_of_sequential_actions=num_of_sequential_actions,
                                num_episode=num_episode,
                                learning_rate=learning_rate,
