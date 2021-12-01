@@ -57,10 +57,14 @@ def start(args):
                                  path_of_embeddings=args.path_knowledge_base_embeddings,
                                  verbose=args.verbose, num_workers=args.num_workers)
 
-    print(f'KG preprocessing took : {time.time() - full_computation_time}')
+    time_kg_processing = time.time() - full_computation_time
+    print(f'KG preprocessing took : {time_kg_processing}')
+    drill_average.time_kg_processing=time_kg_processing
     Experiments(max_test_time_per_concept=args.max_test_time_per_concept).start(dataset=problems,
                                                                                 models=[
-                                                                                    drill_average,ocel, celoe, eltl])
+                                                                                    drill_average,
+                                                                                    ocel, celoe, eltl
+                                                                                ])
 
 
 if __name__ == '__main__':

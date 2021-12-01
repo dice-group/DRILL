@@ -20,11 +20,21 @@ These indicate the learning performance of the agent.
 
 => As a result the training, a file is created containing all relevant information.
 """
-from ontolearn import KnowledgeBase, LearningProblemGenerator, DrillAverage
+from ontolearn import KnowledgeBase, LearningProblemGenerator, DrillAverage, DrillProbabilistic
 from ontolearn.util import sanity_checking_args
 from argparse import ArgumentParser
 import os
 import json
+
+import random
+import torch
+import numpy as np
+
+random_seed = 1
+random.seed(random_seed)
+torch.manual_seed(random_seed)
+np.random.seed(random_seed)
+
 
 class Trainer:
     def __init__(self, args):
@@ -52,24 +62,24 @@ class Trainer:
             min_num_problems=self.args.min_num_concepts,
             num_diff_runs=self.args.min_num_concepts // 2)
 
-        drill_average = DrillAverage(pretrained_model_path=self.args.pretrained_drill_avg_path,
-                                     knowledge_base=kb,
-                                     drill_first_out_channels=self.args.drill_first_out_channels,
-                                     path_of_embeddings=self.args.path_knowledge_base_embeddings,
-                                     gamma=self.args.gamma,
-                                     num_of_sequential_actions=self.args.num_of_sequential_actions,
-                                     num_episode=self.args.num_episode,
-                                     max_len_replay_memory=self.args.max_len_replay_memory,
-                                     epsilon_decay=self.args.epsilon_decay,
-                                     num_episodes_per_replay=self.args.num_episodes_per_replay,
-                                     num_epochs_per_replay=self.args.num_epochs_per_replay,
-                                     relearn_ratio=self.args.relearn_ratio,
-                                     batch_size=self.args.batch_size, learning_rate=self.args.learning_rate,
-                                     use_illustrations=self.args.use_illustrations,
-                                     verbose=self.args.verbose,
-                                     num_workers=self.args.num_workers)
-        self.save_config(drill_average.storage_path)
-        drill_average.train(balanced_examples)
+        drill = DrillAverage(pretrained_model_path=self.args.pretrained_drill_avg_path,
+                             knowledge_base=kb,
+                             drill_first_out_channels=self.args.drill_first_out_channels,
+                             path_of_embeddings=self.args.path_knowledge_base_embeddings,
+                             gamma=self.args.gamma,
+                             num_of_sequential_actions=self.args.num_of_sequential_actions,
+                             num_episode=self.args.num_episode,
+                             max_len_replay_memory=self.args.max_len_replay_memory,
+                             epsilon_decay=self.args.epsilon_decay,
+                             num_episodes_per_replay=self.args.num_episodes_per_replay,
+                             num_epochs_per_replay=self.args.num_epochs_per_replay,
+                             relearn_ratio=self.args.relearn_ratio,
+                             batch_size=self.args.batch_size, learning_rate=self.args.learning_rate,
+                             use_illustrations=self.args.use_illustrations,
+                             verbose=self.args.verbose,
+                             num_workers=self.args.num_workers)
+        self.save_config(drill.storage_path)
+        drill.train(balanced_examples)
         print('Completed.')
 
 if __name__ == '__main__':

@@ -39,4 +39,29 @@ To ease the reproducibility of our experiments, we prove scripts for training an
 - ``` sh reproduce_large_benchmark.sh ``` reproduces results on 370 benchmark learning.
 - ``` drill_train.py``` allows to train DRILL on any desired learning problem.
 
-For any further questions, please contact:  ```caglar.demir@upb.de```
+## Interpretation of Classification Reports
+```sh
+# Responds to the first (index 0) class expression problem
+"0": {
+      "TargetConcept": "Grandmother",
+      "Target": "Grandmother",
+      "Prediction": "Grandmother",
+      "TopPredictions": [ ["Grandmother","Quality:1.0"],["\u22a4","Quality:0.6666666666666666"],["Sister","Quality:0.46153846153846156"],...],
+      "F-measure": 1.0,
+      "Accuracy": 1.0,
+      "NumClassTested": 5,
+      "Runtime": 0.24213624000549316,
+      "Positives": [...],
+      "Negatives": [...]
+   }
+```
+## Example of a Summary
+1. F-measure for OCEL is negative as F-measure is not reported in DL-Learner
+2. NumClassTested in ELTL is -1 as number of expression tested is not reported in DL-Learner.
+```sh
+##### RESULTS on 18 number of learning problems#####
+DrillAverage     F-measure:(avg. 0.96 | std. 0.08)      Accuracy:(avg. 0.95 | std. 0.10)                NumClassTested:(avg. 1271.67 | std. 1879.41)            Runtime:(avg.1.15 | std.1.43)
+ocel     F-measure:(avg. -0.01 | std. 0.00)     Accuracy:(avg. 0.94 | std. 0.23)                NumClassTested:(avg. 2501.83 | std. 846.80)             Runtime:(avg.6.78 | std.0.45)
+celoe    F-measure:(avg. 0.97 | std. 0.06)      Accuracy:(avg. 0.97 | std. 0.08)                NumClassTested:(avg. 569.33 | std. 1180.74)             Runtime:(avg.5.20 | std.0.99)
+eltl     F-measure:(avg. 0.96 | std. 0.09)      Accuracy:(avg. 0.95 | std. 0.13)                NumClassTested:(avg. -1.00 | std. 0.00)         Runtime:(avg.4.28 | std.0.66)
+```
