@@ -19,10 +19,31 @@ class LengthBasedRefinement(BaseRefinement):
             self.max_len_refinement_top = 3
         else:
             self.max_len_refinement_top = 4
+        self.top_refinements = None
+        self.compute_top_refinements()
+
+    def compute_top_refinements(self):
         self.top_refinements = []
         for ref in self.refine_top_concept():
             if ref.name != '⊥':
                 self.top_refinements.append(ref)
+
+    def remove_from_top_refinements(self, i: Concept):
+        list_to_remove = []
+        for j in self.top_refinements:
+            if i == j:
+                list_to_remove.append(i)
+                continue
+            if j.form in ['ObjectIntersectionOf', 'ObjectUnionOf']:
+                if j.concept_a == i or j.concept_b == i:
+                    list_to_remove.append(j)
+            elif j.form in ['ObjectSomeValuesFrom', 'ObjectAllValuesFrom']:
+                if j.filler == i:
+                    list_to_remove.append(j)
+            else:
+                continue
+        for i in list_to_remove:
+            self.top_refinements.remove(i)
 
     def apply_union_and_intersection_from_iterable(self, cont: Iterable[Generator], ignore_union=False) -> Iterable:
         cumulative_refinements = dict()

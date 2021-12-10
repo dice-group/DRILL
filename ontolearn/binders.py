@@ -284,5 +284,4 @@ class DLLearnerBinder:
         if max_runtime:
             assert isinstance(max_runtime, int)
             self.max_runtime = max_runtime
-
-        return [self.fit(pos=p, neg=n, max_runtime=self.max_runtime).best_hypothesis() for (s, p, n) in dataset]
+        return [self.fit(pos=d['positive_examples'], neg=d['negative_examples'], max_runtime=self.max_runtime).best_hypothesis() for d in dataset]

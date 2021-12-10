@@ -5,6 +5,7 @@ from sklearn.model_selection import KFold
 from .abstracts import BaseNode
 import time
 from random import shuffle
+import pandas as pd
 
 
 class Experiments:
@@ -32,6 +33,10 @@ class Experiments:
         print('###############')
         for (th, lp, pred) in zip(range(len(learning_problems)), learning_problems, test_report):
             report = dict()
+            # lp: {'target_concept':'..','positive_examples':set(),
+            # 'negative_examples':set(),'ignore_concepts':set()}
+            report['TargetConcept'] = lp['target_concept']
+            """            
             # lp is a list
             # where lp[0] target node object or string
             # where lp[1] Positives
@@ -41,21 +46,20 @@ class Experiments:
             else:
                 report['TargetConcept'] = lp[0]
                 print(f'Target => {report["TargetConcept"]}')
-
-            print(pred)
-
+            """
             report.update(pred)
-            report['Positives'], report['Negatives'] = list(lp[1]), list(lp[2])  # 'set' is not JSON serializable.
+            report['Positives'], report['Negatives'] = list(lp['positive_examples']), list(
+                lp['negative_examples'])  # 'set' is not JSON serializable.
             store_json[th] = report
         print('##################')
         # json serialize
-        with open(model.storage_path + '/classification_reports.json', 'w') as file_descriptor:
+        with open(f'{model.storage_path}/{model.name}_classification_reports.json', 'w') as file_descriptor:
             json.dump(store_json, file_descriptor, indent=3)
 
         del store_json
 
         # json serialize
-        with open(model.storage_path + '/classification_reports.json', 'r') as read_file:
+        with open(f'{model.storage_path}/{model.name}_classification_reports.json', 'r') as read_file:
             report = json.load(read_file)
         array_res = np.array(
             [[v['F-measure'], v['Accuracy'], v['NumClassTested'], v['Runtime']] for k, v in report.items()])
@@ -105,7 +109,6 @@ class Experiments:
                 results.setdefault(m.name, []).append((counter, dict_report))
             print(f'##### FOLD:{counter} took {round(time.time() - start_time_fold)} seconds #####')
             counter += 1
-
         self.report_results(results)
 
     def start(self, dataset: List[Tuple[str, Set, Set]] = None, models: List = None):
@@ -119,24 +122,21 @@ class Experiments:
         """
         assert len(models) > 0
         assert len(dataset) > 0
-        assert isinstance(dataset[0], tuple)
-        assert isinstance(dataset[0], tuple)
 
-        shuffle(dataset)
-
+        # shuffle(dataset)
         results = dict()
         counter = 1
-
         for m in models:
             print(
                 f'{m.name} starts on {len(dataset)} number of problems. Max Runtime per problem is set to {self.max_test_time_per_concept} seconds.')
             test_report: List[dict] = m.fit_from_iterable(dataset, max_runtime=self.max_test_time_per_concept)
             str_report, dict_report = self.store_report(m, dataset, test_report)
             results.setdefault(m.name, []).append((counter, dict_report))
+        # Save and ReportReport Results
         self.report_results(results, num_problems=len(dataset))
 
     @staticmethod
-    def report_results(results, num_problems):
+    def report_results(results: Dict[str, List], num_problems: int):
         print(f'\n##### RESULTS on {num_problems} number of learning problems#####')
         for learner_name, v in results.items():
             r = np.array([[report['F-measure'], report['Accuracy'], report['NumClassTested'], report['Runtime']] for

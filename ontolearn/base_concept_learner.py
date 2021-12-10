@@ -88,8 +88,8 @@ class BaseConceptLearner(metaclass=ABCMeta):
     def add_ignored_concepts(self, ignore: Set[str]):
         """
         Ignore given set of concepts during search.
+        Map set of strings concept e.g. 'Female', 'Mother' into our objects
         """
-
         if ignore:
             owl_concepts_to_ignore = set()
             for i in ignore:  # iterate over string representations of ALC concepts.
@@ -224,18 +224,27 @@ class BaseConceptLearner(metaclass=ABCMeta):
             raise ValueError
         return target_concept_str
 
-    def fit_from_iterable(self, dataset: List[Tuple[Any, Set, Set]], max_runtime: int = None) -> List[Dict]:
+    def fit_from_iterable(self, dataset: List, max_runtime: int = None) -> List[Dict]:
         if max_runtime:
             self.max_runtime = max_runtime
 
         results = []
         assert isinstance(dataset, List)
-        for (target_concept, positives, negatives) in dataset:
+        for d in dataset:
+            target_concept, positives, negatives, ignore_concepts = d['target_concept'], d['positive_examples'], d[
+                'negative_examples'], d['ignore_concepts']
+
             target_concept_str = self.__prepare_str_target(target_concept)
 
             start_time = time.time()
-            self.fit(pos=positives, neg=negatives)
+            self.fit(pos=positives, neg=negatives, ignore=ignore_concepts)
             rn = time.time() - start_time
+            if 'Drill' in self.name:
+                # ADD KG processing time
+                rn += self.time_kg_processing
+            top_predictions = []
+            for i in self.best_hypotheses():
+                top_predictions.append([i.concept.name, f'Quality:{i.quality}'])
             h = self.best_hypothesis()
             individuals = h.concept.instances
 
@@ -243,6 +252,7 @@ class BaseConceptLearner(metaclass=ABCMeta):
             accuracy = Accuracy().score(pos=positives, neg=negatives, instances=individuals)
             report = {'Target': target_concept_str,
                       'Prediction': h.concept.name,
+                      'TopPredictions': top_predictions,
                       'F-measure': f_measure,
                       'Accuracy': accuracy,
                       'NumClassTested': self.quality_func.num_times_applied,

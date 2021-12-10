@@ -84,17 +84,14 @@ class Reward(AbstractScorer):
         reward -= len(next_state) * self.beta
 
         return max(reward, 0)
-class SparseReward(AbstractScorer):
+
+class BinaryReward(AbstractScorer):
     """
     Receive reward only if you reach a goal state
     """
-    def __init__(self, pos=None, neg=None, unlabelled=None, reward_of_goal=5.0, beta=.04, alpha=.5):
+    def __init__(self, pos=None, neg=None, unlabelled=None):
         super().__init__(pos, neg, unlabelled)
-        self.name = 'F1'
-
-        self.reward_of_goal = reward_of_goal
-        self.beta = None
-        self.alpha = None
+        self.name = 'BinaryReward'
 
     def score(self, pos, neg, instances):
         self.pos = pos
@@ -154,8 +151,11 @@ class SparseReward(AbstractScorer):
 
     def calculate(self, current_state, next_state=None) -> float:
         self.apply(current_state)
+        # TODO: should not current_state satisfy following constraints ?
+        # assert isinstance(current_state.quality,float)
+        # assert current_state.quality >= 1
         self.apply(next_state)
         if next_state.quality == 1.0:
-            return self.reward_of_goal
+            return 1.0
         else:
             return 0

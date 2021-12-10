@@ -24,6 +24,7 @@ from argparse import ArgumentParser
 import os
 import json
 import time
+from typing import Dict, List, AnyStr
 
 full_computation_time = time.time()
 
@@ -38,14 +39,45 @@ def sanity_checking_args(args):
     assert os.path.isfile(args.path_knowledge_base)
 
 
+def learning_problem_parser_from_json(path) -> List:
+    """ Load Learning Problems from Json into List"""
+    # (1) Read json file into a python dictionary
+    with open(path) as json_file:
+        storage = json.load(json_file)
+    # (2) json file contains stores each learning problem as a value in a key called "problems"
+    assert len(storage) == 1
+    # (3) Validate that we have at least single learning problem
+    assert len(storage['problems']) > 0
+    problems = storage['problems']
+    # (4) Parse learning problems with sanity checking
+    problems: Dict[AnyStr, Dict[AnyStr, List]]  # , e.g.
+    """ {'Aunt'}: {'positive_examples':[...], 'negative_examples':[...], 'ignore_concepts':[...] """
+    class_expression_learning_problems = []
+    for target_name, lp in problems.items():
+        assert 'positive_examples' in lp
+        assert 'negative_examples' in lp
+
+        positive_examples = set(lp['positive_examples'])
+        negative_examples = set(lp['negative_examples'])
+
+        if 'ignore_concepts' in lp:
+            ignore_concepts = set(lp['ignore_concepts'])
+        else:
+            ignore_concepts = set()
+        class_expression_learning_problems.append({
+            'target_concept': target_name,
+            'positive_examples': positive_examples,
+            'negative_examples': negative_examples,
+            'ignore_concepts': ignore_concepts
+        })
+
+    return class_expression_learning_problems
+
+
 def start(args):
     sanity_checking_args(args)
     kb = KnowledgeBase(args.path_knowledge_base)
-    with open(args.path_lp) as json_file:
-        settings = json.load(json_file)
-    problems = [(k, set(v['positive_examples']), set(v['negative_examples'])) for k, v in
-                settings['problems'].items()]
-
+    problems = learning_problem_parser_from_json(args.path_lp)
     print(f'Number of problems {len(problems)} on {kb}')
 
     # Initialize models
@@ -59,11 +91,11 @@ def start(args):
 
     time_kg_processing = time.time() - full_computation_time
     print(f'KG preprocessing took : {time_kg_processing}')
-    drill_average.time_kg_processing=time_kg_processing
+    drill_average.time_kg_processing = time_kg_processing
     Experiments(max_test_time_per_concept=args.max_test_time_per_concept).start(dataset=problems,
                                                                                 models=[
                                                                                     drill_average,
-                                                                                    ocel, celoe, eltl
+                                                                                    celoe, ocel, eltl
                                                                                 ])
 
 

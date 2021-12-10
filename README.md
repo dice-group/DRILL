@@ -40,6 +40,7 @@ To ease the reproducibility of our experiments, we prove scripts for training an
 - ``` drill_train.py``` allows to train DRILL on any desired learning problem.
 
 ## Interpretation of Classification Reports
+
 ```sh
 # Responds to the first (index 0) class expression problem
 "0": {
@@ -55,6 +56,7 @@ To ease the reproducibility of our experiments, we prove scripts for training an
       "Negatives": [...]
    }
 ```
+
 ## Example of a Summary
 1. F-measure for OCEL is negative as F-measure is not reported in DL-Learner
 2. NumClassTested in ELTL is -1 as number of expression tested is not reported in DL-Learner.
@@ -65,3 +67,18 @@ ocel     F-measure:(avg. -0.01 | std. 0.00)     Accuracy:(avg. 0.94 | std. 0.23)
 celoe    F-measure:(avg. 0.97 | std. 0.06)      Accuracy:(avg. 0.97 | std. 0.08)                NumClassTested:(avg. 569.33 | std. 1180.74)             Runtime:(avg.5.20 | std.0.99)
 eltl     F-measure:(avg. 0.96 | std. 0.09)      Accuracy:(avg. 0.95 | std. 0.13)                NumClassTested:(avg. -1.00 | std. 0.00)         Runtime:(avg.4.28 | std.0.66)
 ```
+
+## Prior Knowledge Injection
+Let learning problems defined as follows
+```sh
+{
+  "problems": {
+    "Aunt": { "positive_examples": [..],"negative_examples": [..], "ignore_concepts": ["Father","Male","Son","Brother"]},
+    "Brother": {"positive_examples": [..], "negative_examples": [..],"ignore_concepts": ["Female","Mother","Daughter"]
+    }
+    "Father": { "positive_examples": [..], "negative_examples": [..],"ignore_concepts": [] # Otherwise Empty list
+    }
+  }
+}
+```
+Expression that are given as ignore_concepts will be ignored in the search,i.e., they will not be a refinement of an expression
