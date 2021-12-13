@@ -16,6 +16,8 @@ This script performs the following computations
     4.2. Best hypothesis/predictions of models given E^+ and E^- are obtained.
     4.3. F1-score, Accuracy, Runtimes and Number description tested information stored and serialized.
 """
+import random
+
 from ontolearn import KnowledgeBase, LearningProblemGenerator, DrillAverage
 from ontolearn import Experiments
 from ontolearn.binders import DLLearnerBinder
@@ -74,16 +76,28 @@ def learning_problem_parser_from_json(path) -> List:
     return class_expression_learning_problems
 
 
+def remedy_lps_wo_negatives(kb, problems):
+    for ith,lp_dict in enumerate(problems):
+        if len(lp_dict['negative_examples']) == 0:
+            print(f'{ith} learning problem without negatives is remedied.')
+            lp_dict['negative_examples'] = kb.individuals.difference(lp_dict['positive_examples'])
+    return problems
+
+
 def start(args):
     sanity_checking_args(args)
     kb = KnowledgeBase(args.path_knowledge_base)
     problems = learning_problem_parser_from_json(args.path_lp)
+    # Remdiy empty negatives
+    problems = remedy_lps_wo_negatives(kb, problems)
+
     print(f'Number of problems {len(problems)} on {kb}')
 
     # Initialize models
-    celoe = DLLearnerBinder(binary_path=args.path_dl_learner, kb_path=args.path_knowledge_base, model='celoe')
-    ocel = DLLearnerBinder(binary_path=args.path_dl_learner, kb_path=args.path_knowledge_base, model='ocel')
-    eltl = DLLearnerBinder(binary_path=args.path_dl_learner, kb_path=args.path_knowledge_base, model='eltl')
+    if args.path_dl_learner:
+        celoe = DLLearnerBinder(binary_path=args.path_dl_learner, kb_path=args.path_knowledge_base, model='celoe')
+        ocel = DLLearnerBinder(binary_path=args.path_dl_learner, kb_path=args.path_knowledge_base, model='ocel')
+        eltl = DLLearnerBinder(binary_path=args.path_dl_learner, kb_path=args.path_knowledge_base, model='eltl')
 
     drill_average = DrillAverage(pretrained_model_path=args.pretrained_drill_avg_path, knowledge_base=kb,
                                  path_of_embeddings=args.path_knowledge_base_embeddings,
@@ -92,11 +106,15 @@ def start(args):
     time_kg_processing = time.time() - full_computation_time
     print(f'KG preprocessing took : {time_kg_processing}')
     drill_average.time_kg_processing = time_kg_processing
-    Experiments(max_test_time_per_concept=args.max_test_time_per_concept).start(dataset=problems,
-                                                                                models=[
-                                                                                    drill_average,
-                                                                                    celoe, ocel, eltl
-                                                                                ])
+    if args.path_dl_learner:
+        Experiments(max_test_time_per_concept=args.max_test_time_per_concept).start(dataset=problems,
+                                                                                    models=[
+                                                                                        drill_average,
+                                                                                        celoe, ocel, eltl
+                                                                                    ])
+    else:
+        Experiments(max_test_time_per_concept=args.max_test_time_per_concept).start(dataset=problems,
+                                                                                    models=[drill_average])
 
 
 if __name__ == '__main__':
@@ -107,13 +125,13 @@ if __name__ == '__main__':
     parser.add_argument("--path_knowledge_base_embeddings", type=str)
     parser.add_argument('--pretrained_drill_avg_path', type=str, help='Provide a path of .pth file')
     # Binaries for DL-learner
-    parser.add_argument("--path_dl_learner", type=str)
+    parser.add_argument("--path_dl_learner", type=str, default=None, help='Path of dl-learner binaries.')
     # Concept Learning Testing
     parser.add_argument("--iter_bound", type=int, default=10_000, help='iter_bound during testing.')
     parser.add_argument('--max_test_time_per_concept', type=int, default=3, help='Max. runtime during testing')
 
     # General
     parser.add_argument("--verbose", type=int, default=0)
-    parser.add_argument('--num_workers', type=int, default=32, help='Number of cpus used during batching')
+    parser.add_argument('--num_workers', type=int, default=4, help='Number of cpus used during batching')
 
     start(parser.parse_args())

@@ -462,8 +462,7 @@ class AbstractDrill(ABC):
     def __init__(self, path_of_embeddings, reward_func, drill_first_out_channels=32, gamma=1.0, learning_rate=.001,
                  num_episode=None, num_of_sequential_actions=2, max_len_replay_memory=1024,
                  relearn_ratio=1, use_illustrations=False, representation_mode=None, batch_size=1024,
-                 epsilon_decay=.001,
-                 num_epochs_per_replay=50, num_episodes_per_replay=25, num_workers=32):
+                 epsilon_decay=.001, num_epochs_per_replay=50, num_episodes_per_replay=25, num_workers=32, verbose=1):
         self.drill_first_out_channels = drill_first_out_channels
         self.instance_embeddings = read_csv(path_of_embeddings)
         self.embedding_dim = self.instance_embeddings.shape[1]
@@ -482,6 +481,7 @@ class AbstractDrill(ABC):
             self.learning_rate = .01
         else:
             self.learning_rate = learning_rate
+        self.verbose = verbose
         self.num_episode = num_episode
         self.num_of_sequential_actions = num_of_sequential_actions
         self.num_epochs_per_replay = num_epochs_per_replay
@@ -500,6 +500,7 @@ class AbstractDrill(ABC):
         self.start_time = None
         self.goal_found = False
         self.experiences = Experience(maxlen=self.max_len_replay_memory)
+        self.target_net = None
 
     def default_state_rl(self):
         self.emb_pos, self.emb_neg = None, None
@@ -541,16 +542,30 @@ class AbstractDrill(ABC):
 
         """
         assert len(state_pairs) == len(rewards)
+        n = len(rewards)
 
         for th, consecutive_states in enumerate(state_pairs):
             s_i, s_j = consecutive_states
-            # 1. Immediate rewards, [r_0,r_1,r_2]
+            # 1. Immediate reward r_t and [r_{t+1},r_{t+2},r_{t+3}]
             current_and_future_rewards = rewards[th:]
             # 2. [\gamma^0,\gamma^1,\gamma^2]
             aligned_discount_rates = np.power(self.gamma, np.arange(len(current_and_future_rewards)))
             # 3. G_t = \gamma^0* r_t + \gamma^1 r_t+1 + + \gamma^2 r_t+2
             discounted_reward = sum(current_and_future_rewards * aligned_discount_rates)
-            self.experiences.append((s_i, s_j, discounted_reward))
+            if self.target_net is not None:
+                if n - 1 < th:
+                    # If it is not the terminal state.
+                    # Single data point of torch.Size([1, 4, 1, 50])
+                    # A single filter captures all interactions between embeddings of say 3 dims.
+                    X = torch.cat([s_i.embeddings, s_j.embeddings, self.emb_pos, self.emb_neg], 1)
+                    X = X.view(1, 4, 1, s_i.embeddings.shape[2])
+                    target_value = discounted_reward + self.target_net(X).flatten().detach().numpy()[0]
+                    self.experiences.append((s_i, s_j, target_value))
+                else:
+                    self.experiences.append((s_i, s_j, discounted_reward))
+
+            else:
+                self.experiences.append((s_i, s_j, discounted_reward))
 
     def learn_from_replay_memory(self) -> None:
         """
@@ -585,11 +600,13 @@ class AbstractDrill(ABC):
         data_loader = torch.utils.data.DataLoader(dataset,
                                                   batch_size=self.batch_size, shuffle=True,
                                                   num_workers=self.num_workers)
-        print(f'Optimizing weights of the agent on {num_experience} number of experiences')
+        if self.verbose > 10:
+            print(f'Optimizing weights of the agent on {num_experience} number of experiences')
         self.heuristic_func.net.train()
         for m in range(self.num_epochs_per_replay):
             total_loss = 0
             for X, y in data_loader:
+                # X.shape => BatchSize, Channel, Row, Height
                 self.optimizer.zero_grad()  # zero the gradient buffers
                 # forward
                 predicted_q = self.heuristic_func.net.forward(X)
@@ -599,7 +616,12 @@ class AbstractDrill(ABC):
                 # compute the derivative of the loss w.r.t. the parameters using backpropagation
                 loss.backward()
                 # clip gradients if gradients are killed. =>torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.5)
+                for param in self.heuristic_func.net.parameters():
+                    param.grad.data.clamp_(-1, 1)
                 self.optimizer.step()
+
+            if self.verbose > 10:
+                print(f'{m}.th epoch of the replay loss: {total_loss}')
         self.heuristic_func.net.train().eval()
 
     def sequence_of_actions(self, root: BaseNode) -> Tuple[List[Tuple[BaseNode, BaseNode]], List[SupportsFloat]]:
@@ -624,9 +646,9 @@ class AbstractDrill(ABC):
         rewards = []
         # (1)
         for _ in range(self.num_of_sequential_actions):
-            # (1.1)
+            # (1.1) Obtain possible next states
             next_states = list(self.apply_rho(current_state))
-            # (1.2)
+            # (1.2) Select a next state
             next_state = self.exploration_exploitation_tradeoff(current_state, next_states)
             # (1.3)
             if next_state.concept.name == 'Nothing':  # Dead END
@@ -635,10 +657,11 @@ class AbstractDrill(ABC):
                 # (1.5)
                 rewards.append(self.reward_func.calculate(current_state, next_state))
                 break
-            # (1.4)
-            path_of_concepts.append((current_state, next_state))
-            # (1.5)
-            rewards.append(self.reward_func.calculate(current_state, next_state))
+            else:
+                # (1.4)
+                path_of_concepts.append((current_state, next_state))
+                # (1.5)
+                rewards.append(self.reward_func.calculate(current_state, next_state))
             # (1.6)
             current_state = next_state
         # (2)
@@ -694,6 +717,27 @@ class AbstractDrill(ABC):
             self.form_experiences(sequence_of_states, rewards)
         self.learn_from_replay_memory()
 
+    def describe_single_rl_loop(self, th, sequence_of_states, rewards):
+        if self.verbose > 10:
+            print(
+                '{0}.th episode. SumOfRewards: {1:.2f}\tEpsilon:{2:.2f}\t|ReplayMem.|:{3}'.format(th,
+                                                                                                  sum(rewards),
+                                                                                                  self.epsilon,
+                                                                                                  len(
+                                                                                                      self.experiences)))
+        self.logger.info(
+            '{0}.th episode. SumOfRewards: {1:.2f}\tEpsilon:{2:.2f}\t|ReplayMem.|:{3}'.format(th, sum(rewards),
+                                                                                              self.epsilon,
+                                                                                              len(self.experiences)))
+        self.logger.info(f'{th}.th episode. Trajectory starts')
+
+        for s, s_next in sequence_of_states:
+            s: BaseNode
+            if self.verbose > 10:
+                print(s_next)
+            self.logger.info(s_next)
+        self.logger.info(f'{th}.th episode. Trajectory ends')
+
     def rl_learning_loop(self, pos_uri: Set[str], neg_uri: Set[str], goal_path: List[BaseNode] = None) -> \
             List[float]:
         """
@@ -720,24 +764,15 @@ class AbstractDrill(ABC):
             self.learn_from_illustration(goal_path)
 
         # (3) Training starts.
+        print('RL agent starts to interact with the environment. Trajectories will be summarized.')
+        self.logger.info('RL agent starts to interact with the environment. Trajectories will be summarized.')
         for th in range(1, self.num_episode + 1):
             # (3.1) Search => Take sequence of actions.
             sequence_of_states, rewards = self.sequence_of_actions(root)
             if th % log_every_n_episodes == 1:
-                print(
-                    '{0}.th episode. SumOfRewards: {1:.2f}\tEpsilon:{2:.2f}\t|ReplayMem.|:{3}'.format(th, sum(rewards),
-                                                                                                      self.epsilon, len(
-                            self.experiences)))
-                self.logger.info(
-                    '{0}.th episode. SumOfRewards: {1:.2f}\tEpsilon:{2:.2f}\t|ReplayMem.|:{3}'.format(th, sum(rewards),
-                                                                                                      self.epsilon, len(
-                            self.experiences)))
-                self.logger.info(f'{th}.th episode. Trajectory starts')
-                print(f'{th}.th episode. Trajectory starts')
-                for s, s_next in sequence_of_states:
-                    self.logger.info(s)
-                    print(s)
-                self.logger.info(f'{th}.th episode. Trajectory ends')
+                self.describe_single_rl_loop(th,
+                                             sequence_of_states,
+                                             rewards=rewards)
 
             # (3.2) Form experiences for Experience Replay
             self.form_experiences(sequence_of_states, rewards)
@@ -746,6 +781,9 @@ class AbstractDrill(ABC):
             # (3.3) Experience Replay
             if th % self.num_episodes_per_replay == 0:
                 self.learn_from_replay_memory()
+
+            if self.target_net and th % (self.num_episodes_per_replay * 3) == 0:
+                self.target_net.load_state_dict(self.heuristic_func.net.state_dict())
 
             # (3.4) Epsilon greedy => Exploration Exploitation
             self.epsilon -= self.epsilon_decay
@@ -917,8 +955,15 @@ class AbstractDrill(ABC):
         return predictions
 
     def train(self, dataset: Iterable[Tuple[str, Set, Set]]):
-        self.logger.info('Training starts.')
-        print(f'Training starts.\nNumber of learning problem:{len(dataset)},\t Relearn ratio:{self.relearn_ratio}')
+        self.logger.info(f'Training starts.\tNumber of learning problem:{len(dataset)},\t Relearn ratio:{self.relearn_ratio}')
+        print(f'Training starts.\tNumber of learning problem:{len(dataset)},\t Relearn ratio:{self.relearn_ratio}')
+        for ith,(target_node, positives, negatives) in enumerate(dataset):
+            print(f'{ith}. learning problem sampled from {target_node}')
+
+        print('Shuffle the training data')
+        self.logger.info('Shuffle the training data')
+        random.shuffle(dataset)
+
         counter = 1
         # 1.
         for _ in range(self.relearn_ratio):
@@ -930,15 +975,24 @@ class AbstractDrill(ABC):
                                                                       len(positives), len(negatives)))
                 # 2.
                 print(f'RL training on {counter}.th learning problem starts')
+                self.logger.info(f'RL training on {counter}.th learning problem starts')
                 if self.use_illustrations:
-                    print('USE ILLUSTRATION')
+                    print('The goal illustration technique is applied to generate goal experiences')
+                    self.logger.info('The goal illustration technique is applied to generate goal experiences')
                     goal_path = list(reversed(retrieve_concept_chain(target_node)))
                 else:
                     goal_path = None
                 sum_of_rewards_per_actions = self.rl_learning_loop(pos_uri=positives, neg_uri=negatives,
                                                                    goal_path=goal_path)
-                print(f'Sum of Rewards in first 3 trajectory:{sum_of_rewards_per_actions[:3]}')
-                print(f'Sum of Rewards in last 3 trajectory:{sum_of_rewards_per_actions[-3:]}')
+                print(
+                    f'Average of reward of the first 3 trajectories: {np.array(sum_of_rewards_per_actions[:3]).mean():.5f}')
+                print(
+                    f'Average of reward of the last 3 trajectories: {np.array(sum_of_rewards_per_actions[-3:]).mean():.5f}')
+
+                self.logger.info(
+                    f'Average of reward of the first 3 trajectories: {np.array(sum_of_rewards_per_actions[:3]).mean():.5f}')
+                self.logger.info(
+                    f'Average of reward of the last 3 trajectories: {np.array(sum_of_rewards_per_actions[-3:]).mean():.5f}')
                 self.seen_examples.setdefault(counter, dict()).update(
                     {'Concept': target_node.concept.name, 'Positives': list(positives), 'Negatives': list(negatives)})
 

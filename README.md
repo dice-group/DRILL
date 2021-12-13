@@ -33,11 +33,33 @@ unzip dllearner-1.4.0.zip
 # Test the DL-learner framework
 dllearner-1.4.0/bin/cli dllearner-1.4.0/examples/father.conf
 ```
-## Reproduce experiments
+
+# Reproduce experiments
 To ease the reproducibility of our experiments, we prove scripts for training and testing.
 - ``` sh reproduce_small_benchmark.sh ``` reproduces results on benchmark learning.
 - ``` sh reproduce_large_benchmark.sh ``` reproduces results on 370 benchmark learning.
 - ``` drill_train.py``` allows to train DRILL on any desired learning problem.
+
+# Learning Problems and Injecting Prior Knowledge
+DRILL is designed to tackle the class expression learning problem, where the goal is to find a Description Logic expression
+that covers all positive examples and does not cover any negative learning problems.
+
+Currently, we are exploring injecting prior knowledge and alleviating the need of negative examples. 
+The former regards to ignoring class expression given by the user and the latter regards to under sampling the set of all individuals to automatically
+obtain negative examples.
+```sh
+{
+  "problems": {
+    "Aunt": { "positive_examples": [..],"negative_examples": [..], "ignore_concepts": ["Father","Male","Son","Brother"]},
+    "Brother": {"positive_examples": [..], "negative_examples": [..],"ignore_concepts": ["Female","Mother","Daughter"]
+    }
+    "Father": { "positive_examples": [..], "negative_examples": [],"ignore_concepts": [] # Negative Examples and ignore_concepts can be empty list
+    }
+  }
+}
+```
+Expression that are given as ignore_concepts will be ignored in the search, i.e., they will not be a refinement of an expression.
+Learning problems with empty negative_examples are tackled by random sampling negative examples. 
 
 ## Interpretation of Classification Reports
 
@@ -68,17 +90,3 @@ celoe    F-measure:(avg. 0.97 | std. 0.06)      Accuracy:(avg. 0.97 | std. 0.08)
 eltl     F-measure:(avg. 0.96 | std. 0.09)      Accuracy:(avg. 0.95 | std. 0.13)                NumClassTested:(avg. -1.00 | std. 0.00)         Runtime:(avg.4.28 | std.0.66)
 ```
 
-## Prior Knowledge Injection
-Let learning problems defined as follows
-```sh
-{
-  "problems": {
-    "Aunt": { "positive_examples": [..],"negative_examples": [..], "ignore_concepts": ["Father","Male","Son","Brother"]},
-    "Brother": {"positive_examples": [..], "negative_examples": [..],"ignore_concepts": ["Female","Mother","Daughter"]
-    }
-    "Father": { "positive_examples": [..], "negative_examples": [..],"ignore_concepts": [] # Otherwise Empty list
-    }
-  }
-}
-```
-Expression that are given as ignore_concepts will be ignored in the search,i.e., they will not be a refinement of an expression

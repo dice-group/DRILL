@@ -273,7 +273,7 @@ class LearningProblemGenerator:
 
         def f1(x):
             a = self.max_length >= len(x) >= self.min_length
-            if a == False:
+            if not a:
                 return a
             x.concept.instances = instance_retrieval(x.concept)
             b = self.max_num_instances >= len(x.concept.instances) >= self.min_num_instances

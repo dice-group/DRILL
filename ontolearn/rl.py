@@ -210,6 +210,7 @@ class DrillAverage(AbstractDrill, BaseConceptLearner):
                  max_len_replay_memory=None, batch_size=None, epsilon_decay=None,
                  num_epochs_per_replay=None, num_episodes_per_replay=None, learning_rate=None,
                  relearn_ratio=None, use_illustrations=None,
+                 use_target_net=False,
                  max_runtime=None, num_of_sequential_actions=None, num_episode=None, num_workers=32):
 
         if refinement_operator is None:
@@ -230,7 +231,7 @@ class DrillAverage(AbstractDrill, BaseConceptLearner):
                                num_of_sequential_actions=num_of_sequential_actions,
                                num_episode=num_episode,
                                learning_rate=learning_rate,
-                               num_workers=num_workers)
+                               num_workers=num_workers, verbose=verbose)
 
         self.sample_size = 1
         arg_net = {'input_shape': (4 * self.sample_size, self.embedding_dim),
@@ -238,6 +239,12 @@ class DrillAverage(AbstractDrill, BaseConceptLearner):
 
         self.heuristic_func = DrillHeuristic(mode='averaging', model_args=arg_net)
         self.optimizer = torch.optim.Adam(self.heuristic_func.net.parameters(), lr=self.learning_rate)
+        if use_target_net:
+            print('Use Target Net')
+            self.target_net = DrillHeuristic(mode='averaging', model_args=arg_net).net
+            self.target_net.load_state_dict(self.heuristic_func.net.state_dict())
+            self.target_net.eval()
+
         if pretrained_model_path:
             try:
                 m = torch.load(pretrained_model_path, torch.device('cpu'))
@@ -281,7 +288,8 @@ class DrillAverage(AbstractDrill, BaseConceptLearner):
         # 5. If w
         if len(self.concepts_to_ignore) > 0:
             for i in self.concepts_to_ignore:
-                print(f'States includes {i} will be ignored')
+                if self.verbose > 1:
+                    print(f'States includes {i} will be ignored')
                 self.rho.remove_from_top_refinements(i)
         else:
             self.rho.compute_top_refinements()
