@@ -40,53 +40,48 @@ To ease the reproducibility of our experiments, we prove scripts for training an
 - ``` sh reproduce_large_benchmark.sh ``` reproduces results on 370 benchmark learning.
 - ``` drill_train.py``` allows to train DRILL on any desired learning problem.
 
-# Learning Problems and Injecting Prior Knowledge
-DRILL is designed to tackle the class expression learning problem, where the goal is to find a Description Logic expression
-that covers all positive examples and does not cover any negative learning problems.
+## Supervised Learning, Prior Knowledge Injection and Positive Only Learning
 
-Currently, we are exploring injecting prior knowledge and alleviating the need of negative examples. 
-The former regards to ignoring class expression given by the user and the latter regards to under sampling the set of all individuals to automatically
-obtain negative examples.
+### Supervised Learning
+Consider the following json file storing a learning problem.
+```sh
+{ "problems": { "Aunt": { "positive_examples": [...], "negative_examples": [...] } } }
+```
+A classification report of DRILL will be stored in a json file as shown below
 ```sh
 {
-  "problems": {
-    "Aunt": { "positive_examples": [..],"negative_examples": [..], "ignore_concepts": ["Father","Male","Son","Brother"]},
-    "Brother": {"positive_examples": [..], "negative_examples": [..],"ignore_concepts": ["Female","Mother","Daughter"]
-    }
-    "Father": { "positive_examples": [..], "negative_examples": [],"ignore_concepts": [] # Negative Examples and ignore_concepts can be empty list
-    }
-  }
+   "0": {
+      "TargetConcept": "Aunt",
+      "Target": "Aunt",
+      "Prediction": "Female",
+      "TopPredictions": [["Female","Quality:0.804"],["\u00acMale","Quality:0.804"], ... ],
+      "F-measure": 0.804,
+      "Accuracy": 0.756,
+      "NumClassTested": 6117,
+      "Runtime": 3.53,
+      "positive_examples": [...],
+      "negative_examples": [...]
+   },
+```
+### Supervised Learning with Prior Knowledge Injection
+Currently, we are exploring the idea of injecting prior knowledge into DRILL.
+```sh
+{ "problems": { "Aunt": { "positive_examples": [...], "negative_examples": [...],"ignore_concepts": ["Male","Father","Son","Brother","Grandfather","Grandson"] } } }
+```
+A class expression report will be obtained while ignoring any expression related to "ignore_concepts"
+### From Supervised Learning to Positive Only Learning
+Currently, we are exploring the idea of applying a pretrained DRILL that is trained for Supervised Learning in positive only learning.
+```sh
+{ "problems": { "Aunt": { "positive_examples": [...], "negative_examples": [] # Empty list} } }
+```
+## How to cite
+```
+@article{demir2021drill,
+  title={DRILL--Deep Reinforcement Learning for Refinement Operators in $$\backslash$mathcal $\{$ALC$\}$ $},
+  author={Demir, Caglar and Ngomo, Axel-Cyrille Ngonga},
+  journal={arXiv preprint arXiv:2106.15373},
+  year={2021}
 }
 ```
-Expression that are given as ignore_concepts will be ignored in the search, i.e., they will not be a refinement of an expression.
-Learning problems with empty negative_examples are tackled by random sampling negative examples. 
 
-## Interpretation of Classification Reports
-
-```sh
-# Responds to the first (index 0) class expression problem
-"0": {
-      "TargetConcept": "Grandmother",
-      "Target": "Grandmother",
-      "Prediction": "Grandmother",
-      "TopPredictions": [ ["Grandmother","Quality:1.0"],["\u22a4","Quality:0.6666666666666666"],["Sister","Quality:0.46153846153846156"],...],
-      "F-measure": 1.0,
-      "Accuracy": 1.0,
-      "NumClassTested": 5,
-      "Runtime": 0.24213624000549316,
-      "Positives": [...],
-      "Negatives": [...]
-   }
-```
-
-## Example of a Summary
-1. F-measure for OCEL is negative as F-measure is not reported in DL-Learner
-2. NumClassTested in ELTL is -1 as number of expression tested is not reported in DL-Learner.
-```sh
-##### RESULTS on 18 number of learning problems#####
-DrillAverage     F-measure:(avg. 0.96 | std. 0.08)      Accuracy:(avg. 0.95 | std. 0.10)                NumClassTested:(avg. 1271.67 | std. 1879.41)            Runtime:(avg.1.15 | std.1.43)
-ocel     F-measure:(avg. -0.01 | std. 0.00)     Accuracy:(avg. 0.94 | std. 0.23)                NumClassTested:(avg. 2501.83 | std. 846.80)             Runtime:(avg.6.78 | std.0.45)
-celoe    F-measure:(avg. 0.97 | std. 0.06)      Accuracy:(avg. 0.97 | std. 0.08)                NumClassTested:(avg. 569.33 | std. 1180.74)             Runtime:(avg.5.20 | std.0.99)
-eltl     F-measure:(avg. 0.96 | std. 0.09)      Accuracy:(avg. 0.95 | std. 0.13)                NumClassTested:(avg. -1.00 | std. 0.00)         Runtime:(avg.4.28 | std.0.66)
-```
-
+For any further questions or suggestions, please contact:  ```caglar.demir@upb.de``` / ```caglardemir8@gmail.com```

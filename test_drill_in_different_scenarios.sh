@@ -4,7 +4,7 @@ path_family_dataset=$PWD'/KGs/Family/family-benchmark_rich_background.owl'
 # Embeddings
 path_family_kge=$PWD'/embeddings/ConEx_Family/ConEx_entity_embeddings.csv'
 # Pretrained Models
-path_drill_family=$PWD'/Log/20211213_103505_209642/DrillHeuristic_averaging.pth'
+path_drill_family=$PWD'/pre_trained_agents/Family/DrillHeuristic_averaging/DrillHeuristic_averaging.pth'
 
 # Benchmark Learning Problems
 standard_family_benchmark_lp_path=$PWD'/LPs/Family/lp_dl_learner.json'

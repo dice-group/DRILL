@@ -48,7 +48,7 @@ class Experiments:
                 print(f'Target => {report["TargetConcept"]}')
             """
             report.update(pred)
-            report['Positives'], report['Negatives'] = list(lp['positive_examples']), list(
+            report['positive_examples'], report['negative_examples'] = list(lp['positive_examples']), list(
                 lp['negative_examples'])  # 'set' is not JSON serializable.
             store_json[th] = report
         print('##################')
