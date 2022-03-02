@@ -9,17 +9,19 @@ from argparse import ArgumentParser
 from ontolearn import KnowledgeBase
 from ontolearn.refinement_operators import LengthBasedRefinement
 from ontolearn.learning_problem_generator import LearningProblemGenerator
-#from ontolearn.concept_learner import Drill
+from ontolearn.concept_learner import Drill
 from ontolearn.metrics import F1
 from ontolearn.heuristics import Reward
 from owlapy.model import OWLOntology, OWLReasoner
-from owlapy.owlready2 import OWLOntology_Owlready2
-from owlapy.owlready2.temp_classes import OWLReasoner_Owlready2_TempClasses
-from owlapy.fast_instance_checker import OWLReasoner_FastInstanceChecker
-from core import RefinementOpt, Drill
-import warnings
-warnings.simplefilter("ignore", UserWarning)
+from ontolearn.utils import setup_logging
+
+setup_logging()
+
+
 def ClosedWorld_ReasonerFactory(onto: OWLOntology) -> OWLReasoner:
+    from owlapy.owlready2 import OWLOntology_Owlready2
+    from owlapy.owlready2.temp_classes import OWLReasoner_Owlready2_TempClasses
+    from owlapy.fast_instance_checker import OWLReasoner_FastInstanceChecker
     assert isinstance(onto, OWLOntology_Owlready2)
     base_reasoner = OWLReasoner_Owlready2_TempClasses(ontology=onto)
     reasoner = OWLReasoner_FastInstanceChecker(ontology=onto,
@@ -36,7 +38,6 @@ def start(args):
 
     # 2. Generate Learning Problems.
     lp = LearningProblemGenerator(knowledge_base=kb,
-                                  refinement_operator=RefinementOpt(knowledge_base=kb),
                                   min_length=args.min_length,
                                   max_length=args.max_length,
                                   min_num_instances=min_num_instances,
@@ -48,11 +49,8 @@ def start(args):
         max_length=args.max_length,
         min_num_problems=args.min_num_concepts,
         num_diff_runs=args.min_num_concepts // 2)
-
     drill = Drill(knowledge_base=kb, path_of_embeddings=args.path_knowledge_base_embeddings,
-                  refinement_operator=RefinementOpt(knowledge_base=kb),#LengthBasedRefinement(knowledge_base=kb),
-                  quality_func=F1(),
-                  reward_func=Reward(),
+                  refinement_operator=LengthBasedRefinement(knowledge_base=kb), quality_func=F1(), reward_func=Reward(),
                   batch_size=args.batch_size, num_workers=args.num_workers,
                   pretrained_model_path=args.pretrained_drill_avg_path, verbose=args.verbose,
                   max_len_replay_memory=args.max_len_replay_memory, epsilon_decay=args.epsilon_decay,
@@ -75,16 +73,16 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     # General
     parser.add_argument("--path_knowledge_base", type=str,
-                        default='KGs/Family/family-benchmark_rich_background.owl')
+                        default='../KGs/Family/family-benchmark_rich_background.owl')
     parser.add_argument("--path_knowledge_base_embeddings", type=str,
-                        default='embeddings/ConEx_Family/ConEx_entity_embeddings.csv')
+                        default='../embeddings/ConEx_Family/ConEx_entity_embeddings.csv')
     parser.add_argument('--num_workers', type=int, default=1, help='Number of cpus used during batching')
     parser.add_argument("--verbose", type=int, default=0, help='Higher integer reflects more info during computation')
 
     # Concept Generation Related
-    parser.add_argument("--min_num_concepts", type=int, default=10)
+    parser.add_argument("--min_num_concepts", type=int, default=1)
     parser.add_argument("--min_length", type=int, default=3, help='Min length of concepts to be used')
-    parser.add_argument("--max_length", type=int, default=6, help='Max length of concepts to be used')
+    parser.add_argument("--max_length", type=int, default=5, help='Max length of concepts to be used')
     parser.add_argument("--min_num_instances_ratio_per_concept", type=float, default=.01)  # %1
     parser.add_argument("--max_num_instances_ratio_per_concept", type=float, default=.90)  # %30
     parser.add_argument("--num_of_randomly_created_problems_per_concept", type=int, default=1)

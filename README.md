@@ -11,10 +11,12 @@ git clone https://github.com/dice-group/DRILL
 conda create -n drill_env python=3.9
 # Active virtual enviroment 
 conda activate drill_env
-# Install our developed framework. It may take few minutes
-pip install -e .
-# Test the installation. No error should occur.
+wget https://github.com/dice-group/Ontolearn/archive/refs/tags/0.4.0.zip
+unzip 0.4.0.zip
+cd Ontolearn-0.4.0
+python -c 'from setuptools import setup; setup()' develop
 python -c "import ontolearn"
+cd ..
 ```
 # Preprocessing 
 Unzip knowledge graphs, embeddings, learning problems and pretrained models.
