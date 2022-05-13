@@ -11,8 +11,11 @@ git clone https://github.com/dice-group/DRILL
 conda create -n drill_env python=3.9
 # Active virtual enviroment 
 conda activate drill_env
+cd DRILL
 # Install our developed framework. It may take few minutes
 pip install -e .
+# For the Endpoint
+pip install flask==2.1.2
 # Test the installation. No error should occur.
 python -c "import ontolearn"
 ```
@@ -24,7 +27,58 @@ unzip embeddings.zip
 unzip pre_trained_agents.zip
 unzip LPs.zip
 ```
-# Prepare DL-Learner
+
+# Training
+
+## Knowledge Graph Embeddings
+#### Install dice-embeddings framework
+```
+git clone https://github.com/dice-group/dice-embeddings.git
+pip install -r dice-embeddings/requirements.txt
+mkdir -p dice-embeddings/KGs/Biopax
+```
+Convert an OWL knowledge base into ntriples to create training dataset for KGE.
+```python
+import rdflib
+g = rdflib.Graph()
+g.parse("KGs/Biopax/biopax.owl")
+g.serialize("dice-embeddings/KGs/Biopax/train.txt", format="nt")
+```
+#### Compute Embeddings
+Executing the following command results in creating a folder (KGE_Embeddings) containing all necessary information about the KGE process.
+```
+python dice-embeddings/main.py --path_dataset_folder "dice-embeddings/KGs/Biopax" --storage_path "KGE_Embeddings" --model "ConEx"
+```
+## Train DRILL
+To train DRILL, we need to provide the path of a knowledgebase (KGs/Biopax/biopax.owl) and embeddings
+```
+python drill_train.py --path_knowledge_base "KGs/Biopax/biopax.owl" --path_knowledge_base_embeddings "KGE_Embeddings/2022-05-13 11:02:53.276242/ConEx_entity_embeddings.csv" --num_episode 2 --min_num_concepts 2 --num_of_randomly_created_problems_per_concept 1 --relearn_ratio 5 --use_illustrations False
+```
+
+### Run Endpoint
+A crude workaround for running endpoint.
+```
+git clone https://github.com/dice-group/Ontolearn.git
+cd Ontolearn
+git checkout bf2f94f56bf4508b53a540b5e580a59d73689ccb 
+pip install -e .
+cd ..
+python Ontolearn/examples/simple_drill_endpoint.py --path_knowledge_base 'KGs/Biopax/biopax.owl' --path_knowledge_base_embeddings 'KGE_Embeddings/2022-05-13 11:02:53.276242/ConEx_entity_embeddings.csv' --pretrained_drill_avg_path 'Log/20220513_110334_403223/DrillHeuristic_averaging.pth'
+```
+### Send a Request
+```
+jq '
+   .problems
+     ."((pathwayStep ⊓ (∀INTERACTION-TYPE.Thing)) ⊔ (sequenceInterval ⊓ (∀ID-VERSION.Thing)))"
+   | {
+      "positives": .positive_examples,
+      "negatives": .negative_examples
+     }' LPs/Biopax/lp.json         | curl -d@- http://0.0.0.0:9080/concept_learning
+
+```
+
+# Reproduce experiments
+### Prepare DL-Learner
 Download DL-Learner.
 ```
 # Download DL-Learner
@@ -34,7 +88,6 @@ unzip dllearner-1.4.0.zip
 dllearner-1.4.0/bin/cli dllearner-1.4.0/examples/father.conf
 ```
 
-# Reproduce experiments
 To ease the reproducibility of our experiments, we prove scripts for training and testing.
 - ``` sh reproduce_small_benchmark.sh ``` reproduces results on benchmark learning.
 - ``` sh reproduce_large_benchmark.sh ``` reproduces results on 370 benchmark learning.
