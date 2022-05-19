@@ -56,7 +56,7 @@ python drill_train.py --path_knowledge_base "KGs/Biopax/biopax.owl" --path_knowl
 ```
 
 ### Run Endpoint
-A crude workaround for running endpoint.
+A crude workaround for running endpoint. I would suggest to create your own endpoint :)
 ```
 git clone https://github.com/dice-group/Ontolearn.git
 cd Ontolearn
