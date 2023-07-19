@@ -1,25 +1,3 @@
-"""
-====================================================================
-Drill -- Deep Reinforcement Learning for Refinement Operators in ALC
-====================================================================
-Drill with training.
-Authors: XXX
-
-This script performs the following computations
-1. Parse KG.
-2. Generate learning problems.
-3. Train DRILL on each learning problems.
-
-
-=> During training, current state of learning process is displayed periodically.
-At the end of the each learning problem, sum of rewards in the first and last three trajectories are shown.
-=> Sum of Rewards in first 3 trajectory:[...]
-=> Sum of Rewards in last 3 trajectory:[...]
-These indicate the learning performance of the agent.
-
-
-=> As a result the training, a file is created containing all relevant information.
-"""
 from ontolearn import KnowledgeBase, LearningProblemGenerator, DrillAverage, DrillProbabilistic
 from ontolearn.util import sanity_checking_args
 from argparse import ArgumentParser
@@ -48,6 +26,10 @@ class Trainer:
 
     def start(self):
         # 1. Parse KG.
+        if self.args.endpoint is not None:
+            # @ TODO Establish a connection to a concept retriever
+            # @ TODO SPARQL endpoint, ontolearn or a KGE
+            raise NotImplementedError('A binding is needed')
         kb = KnowledgeBase(self.args.path_knowledge_base)
         min_num_instances = self.args.min_num_instances_ratio_per_concept * len(kb.individuals)
         max_num_instances = self.args.max_num_instances_ratio_per_concept * len(kb.individuals)
@@ -87,7 +69,10 @@ class Trainer:
 if __name__ == '__main__':
     parser = ArgumentParser()
     # General
-    parser.add_argument("--path_knowledge_base", default='KGs/Family/family-benchmark_rich_background.owl')
+    parser.add_argument("--path_knowledge_base",
+                        default='KGs/Family/family-benchmark_rich_background.owl')
+    parser.add_argument("--endpoint",
+                        default='?')
     parser.add_argument("--path_knowledge_base_embeddings",
                         default='embeddings/ConEx_Family/ConEx_entity_embeddings.csv')
     parser.add_argument("--verbose", type=int, default=10)
