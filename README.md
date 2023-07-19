@@ -1,4 +1,4 @@
-# Deep Reinforcement Learning for Refinement Operators in ALC
+# Neuro-Symbolic-Class-Expression-Learning
 
 This open-source project contains the Pytorch implementation of DRILL, training and evaluation scripts. 
 To foster further reproducible research and alleviate hardware requirements to reproduce the reported results, we provide pretrained models on all datasets.
@@ -8,7 +8,7 @@ Create a anaconda virtual environment and install dependencies.
 ```
 git clone https://github.com/dice-group/DRILL
 # Create anaconda virtual enviroment
-conda create -n drill_env python=3.9
+conda create -n drill_env python=3.10
 # Active virtual enviroment 
 conda activate drill_env
 cd DRILL
