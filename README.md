@@ -8,16 +8,11 @@ Create a anaconda virtual environment and install dependencies.
 ```
 git clone https://github.com/dice-group/DRILL
 # Create anaconda virtual enviroment
-conda create -n drill_env python=3.10
-# Active virtual enviroment 
-conda activate drill_env
-cd DRILL
-# Install our developed framework. It may take few minutes
-pip install -e .
-# For the Endpoint
-pip install flask==2.1.2
-# Test the installation. No error should occur.
-python -c "import ontolearn"
+conda create -n drill python=3.10 && conda activate drill 
+
+# Dependencies
+pip install dicee
+
 ```
 # Preprocessing 
 Unzip knowledge graphs, embeddings, learning problems and pretrained models.

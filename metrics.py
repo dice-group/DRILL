@@ -1,8 +1,5 @@
-from .abstracts import AbstractScorer
-from .search import Node
 from typing import Set
-
-
+from abstracts import AbstractScorer
 class Recall(AbstractScorer):
     def __init__(self, pos=None, neg=None, unlabelled=None):
         super().__init__(pos, neg, unlabelled)
@@ -177,8 +174,7 @@ class Accuracy(AbstractScorer):
         super().__init__(pos, neg, unlabelled)
         self.name = 'Accuracy'
 
-    def apply(self, node: Node):
-        assert isinstance(node, Node)
+    def apply(self, node):
         self.applied += 1
 
         instances = node.concept.instances

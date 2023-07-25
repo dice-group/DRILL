@@ -1,45 +1,50 @@
-"""
-====================================================================
-Drill -- Deep Reinforcement Learning for Refinement Operators in ALC
-====================================================================
-Drill with training.
-Authors: XXX
-
-This script performs the following computations
-1. Parse KG.
-2. Generate learning problems.
-3. Train DRILL on each learning problems.
-
-
-=> During training, current state of learning process is displayed periodically.
-At the end of the each learning problem, sum of rewards in the first and last three trajectories are shown.
-=> Sum of Rewards in first 3 trajectory:[...]
-=> Sum of Rewards in last 3 trajectory:[...]
-These indicate the learning performance of the agent.
-
-
-=> As a result the training, a file is created containing all relevant information.
-"""
-from ontolearn import KnowledgeBase, LearningProblemGenerator, DrillAverage, DrillProbabilistic
-from ontolearn.util import sanity_checking_args
+# from ontolearn import KnowledgeBase, LearningProblemGenerator, DrillAverage, DrillProbabilistic
+# from ontolearn.util import sanity_checking_args
 from argparse import ArgumentParser
 import os
 import json
-
+from reasoner import SPARQLCWR
 import random
 import torch
 import numpy as np
-
+from drill import DrillAverage
+from metrics import F1
+from typing import Iterable,Set, Tuple
 random_seed = 1
 random.seed(random_seed)
 torch.manual_seed(random_seed)
 np.random.seed(random_seed)
 
 
+class LearningProblemGenerator:
+    def __init__(self, reasoner):
+        self.reasoner = reasoner
+
+    def generate(self) -> Iterable[Tuple[Set[str], Set[str], Set[str], str]]:
+        """ Generate learning problems """
+        # Convert into generator later on
+        result=[]
+        for c in self.reasoner.get_named_concepts():
+            individuals = self.reasoner.retrieve(c)
+            assert isinstance(individuals, set)
+            if len(individuals) > 3:
+                pos = set(random.sample(individuals, 3))
+                neg = set(random.sample(self.reasoner.individuals, 3))
+                result.append((pos, neg, individuals, c.iri))
+        return result
+
+
+# from owlapy.parser import DLSyntaxParser
+# from owlapy.owl2sparql.converter import Owl2SparqlConverter
+# parser = DLSyntaxParser("http://www.benchmark.org/family#")
+# converter = Owl2SparqlConverter()
+# print(converter.as_query("?var", parser.parse_expression('≥ 2 hasChild.Mother'), False))
+
 class Trainer:
     def __init__(self, args):
-        sanity_checking_args(args)
         self.args = args
+
+        assert self.args.endpoint
 
     def save_config(self, path):
         with open(path + '/configuration.json', 'w') as file_descriptor:
@@ -48,22 +53,13 @@ class Trainer:
 
     def start(self):
         # 1. Parse KG.
-        kb = KnowledgeBase(self.args.path_knowledge_base)
-        min_num_instances = self.args.min_num_instances_ratio_per_concept * len(kb.individuals)
-        max_num_instances = self.args.max_num_instances_ratio_per_concept * len(kb.individuals)
-        # 2. Generate Learning Problems.
-        lp = LearningProblemGenerator(knowledge_base=kb,
-                                      min_length=self.args.min_length,
-                                      max_length=self.args.max_length,
-                                      min_num_instances=min_num_instances,
-                                      max_num_instances=max_num_instances)
-        balanced_examples = lp.get_balanced_n_samples_per_examples(
-            n=self.args.num_of_randomly_created_problems_per_concept,
-            min_num_problems=self.args.min_num_concepts,
-            num_diff_runs=self.args.min_num_concepts // 2)
+        reasoner = SPARQLCWR(url=self.args.endpoint, name='Fuseki')
 
-        drill = DrillAverage(pretrained_model_path=self.args.pretrained_drill_avg_path,
-                             knowledge_base=kb,
+        # 2. Generate Learning Problems.
+        lp = LearningProblemGenerator(reasoner=reasoner)
+
+        drill = DrillAverage(reasoner=reasoner, pretrained_model_path=self.args.pretrained_drill_avg_path,
+                             quality_func=F1(),
                              drill_first_out_channels=self.args.drill_first_out_channels,
                              path_of_embeddings=self.args.path_knowledge_base_embeddings,
                              gamma=self.args.gamma,
@@ -79,17 +75,15 @@ class Trainer:
                              use_illustrations=self.args.use_illustrations,
                              verbose=self.args.verbose,
                              num_workers=self.args.num_workers)
-        self.save_config(drill.storage_path)
-        drill.train(balanced_examples)
+        drill.train(lp.generate())
         print('Completed.')
 
 
 if __name__ == '__main__':
     parser = ArgumentParser()
     # General
-    parser.add_argument("--path_knowledge_base", default='KGs/Family/family-benchmark_rich_background.owl')
-    parser.add_argument("--path_knowledge_base_embeddings",
-                        default='embeddings/ConEx_Family/ConEx_entity_embeddings.csv')
+    parser.add_argument("--endpoint", type=str, default='http://localhost:3030/mutagenesis/')
+    parser.add_argument("--path_knowledge_base_embeddings", type=str, default=None)
     parser.add_argument("--verbose", type=int, default=10)
     parser.add_argument('--num_workers', type=int, default=4, help='Number of cpus used during batching')
 

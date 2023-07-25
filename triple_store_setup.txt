@@ -1,0 +1,43 @@
+# Download
+mkdir Fuseki && cd Fuseki
+# Tools for Jena.
+wget https://archive.apache.org/dist/jena/binaries/apache-jena-4.7.0.tar.gz
+# SPARQL Server creation.
+wget https://archive.apache.org/dist/jena/binaries/apache-jena-fuseki-4.7.0.tar.gz
+tar -xzf apache-jena-fuseki-4.7.0.tar.gz && tar -xzf apache-jena-4.7.0.tar.gz
+
+# Create folder for triple-store and copy the data
+mkdir -p databases/mutagenesis/ && cp /home/demir/Desktop/alc2sparql-bench-semantics/artifacts/artifacts/mutagenesis/mutagenesis-pellet-inf.nt data.nt
+
+# Loading data into triplestore
+apache-jena-4.7.0/bin/tdb2.tdbloader --loader=parallel --loc databases/mutagenesis/ data.nt
+16:23:50 INFO  loader          :: Loader = LoaderParallel
+16:23:50 INFO  loader          :: Start: mutagenesis-pellet-inf.nt
+16:23:51 INFO  loader          :: Finished: mutagenesis-pellet-inf.nt: 96,165 tuples in 0.90s (Avg: 107,087)
+16:23:53 INFO  loader          :: Finish - index SPO
+16:23:53 INFO  loader          :: Finish - index OSP
+16:23:53 INFO  loader          :: Finish - index POS
+16:23:53 INFO  loader          :: Time = 2.485 seconds : Triples = 96,165 : Rate = 38,698 /s
+
+# Open a Terminal
+# Ensure that the JAVA_HOME is set to /usr/lib/jvm/java-1.17.0-openjdk-amd64
+# Enter
+cd apache-jena-fuseki-4.7.0
+java -Xmx4G -jar fuseki-server.jar --tdb2 --loc=/home/demir/Desktop/Softwares/DRILL/Fuseki/databases/mutagenesis /mutagenesis
+16:25:47 INFO  Server          :: Running in read-only mode for /mutagenesis
+16:25:47 INFO  Server          :: Apache Jena Fuseki 4.7.0
+16:25:47 INFO  Config          :: FUSEKI_HOME=/home/demir/Desktop/Softwares/DRILL/Fuseki/apache-jena-fuseki-4.7.0/.
+16:25:47 INFO  Config          :: FUSEKI_BASE=/home/demir/Desktop/Softwares/DRILL/Fuseki/apache-jena-fuseki-4.7.0/run
+16:25:47 INFO  Config          :: Shiro file: file:///home/demir/Desktop/Softwares/DRILL/Fuseki/apache-jena-fuseki-4.7.0/run/shiro.ini
+16:25:48 INFO  Config          :: Template file: templates/config-tdb2-dir-readonly
+16:25:48 INFO  Server          :: Database: TDB2 dataset: location=/home/demir/Desktop/Softwares/DRILL/Fuseki/databases/mutagenesis
+16:25:48 INFO  Server          :: Path = /mutagenesis
+16:25:48 INFO  Server          ::   Memory: 4.0 GiB
+16:25:48 INFO  Server          ::   Java:   11.0.19
+16:25:48 INFO  Server          ::   OS:     Linux 5.15.0-76-generic amd64
+16:25:48 INFO  Server          ::   PID:    181695
+16:25:48 INFO  Server          :: Started 2023/07/24 16:25:48 CEST on port 3030
+
+# Open Another Terminal execute the following
+# Go to localhost:3030
+curl http://localhost:3030/mutagenesis/ --data query=PREFIX%20rdf%3A%20%3Chttp%3A%2F%2Fwww.w3.org%2F1999%2F02%2F22-rdf-syntax-ns%23%3E%0APREFIX%20rdfs%3A%20%3Chttp%3A%2F%2Fwww.w3.org%2F2000%2F01%2Frdf-schema%23%3E%0ASELECT%20%2A%20WHERE%20%7B%0A%20%20%3Fsub%20%3Fpred%20%3Fobj%20.%0A%7D%20LIMIT%2010 -X POST
