@@ -1,4 +1,6 @@
 from abc import ABCMeta
+from collections import deque
+import owlapy.model
 from abstracts import AbstractScorer
 
 import time
@@ -6,11 +8,36 @@ import json
 import pandas as pd
 import numpy as np
 import functools
-from typing import Set, Tuple
+from typing import Set, Tuple, List, Iterable
 import torch
 from torch import nn
 from torch.functional import F
 from torch.nn.init import xavier_normal_
+import random
+from reasoner import Nothing
+from heuristics import BinaryReward, Reward
+
+
+class State:
+    def __init__(self, concept, previous_state=None):
+        self.concept = concept
+        self.previous_state = previous_state
+        self.individuals = None
+
+    def __str__(self):
+        return f"<rl.State object at {hex(id(self))} containing {self.concept}>"
+
+    def __len__(self):
+        if isinstance(self.concept, owlapy.model.OWLClass):
+            return 1
+        elif isinstance(self.concept, owlapy.model.OWLObjectUnionOf) or isinstance(self.concept,
+                                                                                   owlapy.model.OWLObjectIntersectionOf):
+            length = 0
+            for op in self.concept.operands():
+                length += len(op)
+            return length
+        else:
+            raise NotImplementedError('Type of the concept is not recognized')
 
 
 class DrillAverage:
@@ -27,10 +54,27 @@ class DrillAverage:
                  use_target_net=False,
                  max_runtime=None, num_of_sequential_actions=None, num_episode=None, num_workers=32):
 
+        self.reasoner = reasoner
+        self.epsilon = 0.1
+        self.reward_func = Reward()
+        self.num_episode = 100
         self.sample_size = 1
         self.embedding_dim = 32
+        self.num_of_sequential_actions = 2
         self.drill_first_out_channels = 3
         self.learning_rate = .1
+        self.max_len_replay_memory = 1024
+        self.batch_size = 32
+        self.num_workers: int = 0
+        self.num_epochs_per_replay: int = 5
+        self.epsilon: float = 1.0
+        self.epsilon_decay: float = 0.001
+        self.epsilon_min: float = .001
+        self.relearn_ratio: int = 2
+        self.emb_pos: torch.FloatTensor = None
+        self.emb_neg: torch.FloatTensor = None
+        self.experiences = Experience(maxlen=self.max_len_replay_memory)
+        self.iter_bound=100
         arg_net = {'input_shape': (4 * self.sample_size, self.embedding_dim),
                    'first_out_channels': self.drill_first_out_channels, 'num_output': 1, 'kernel_size': 3}
 
@@ -49,170 +93,166 @@ class DrillAverage:
 
         print('Number of parameters: ', sum([p.numel() for p in self.heuristic_func.net.parameters()]))
 
-    def rl_learning_loop(self,pos,neg):
-        # 2. Obtain embeddings of positive and negative examples.
-        if False:
-            emb_pos = torch.tensor(self.instance_embeddings.loc[list(pos)].values, dtype=torch.float32)
-            emb_neg = torch.tensor(self.instance_embeddings.loc[list(neg)].values, dtype=torch.float32)
+    def next_possible_states(self, current_state: State) -> List[State]:
+        """ given a State, return all possible next states"""
+        return [State(concept=i, previous_state=current_state) for i in
+                self.reasoner.apply_construction_rules(current_state.concept)]
 
-            emb_pos = torch.mean(emb_pos, dim=0)
-            emb_pos = emb_pos.view(1, 1, emb_pos.shape[0])
-            emb_neg = torch.mean(emb_neg, dim=0)
-            emb_neg = emb_neg.view(1, 1, emb_neg.shape[0])
+    def exploitation(self, current_state: State, next_states: Set[State]) -> State:
+        pass
+
+    def choose_next_state(self, current_state: State, next_states: Set[State]) -> State:
+        """
+        Exploration vs Exploitation tradeoff at finding next state.
+        (1) Exploration
+        (2) Exploitation
+        """
+        # Sanity checking
+        if len(next_states) == 0:  # DEAD END
+            raise ValueError
+        if np.random.random() < self.epsilon:
+            next_state = random.choice(next_states)
         else:
-            emb_pos=torch.rand(5)
-            emb_neg=torch.rand(5)
+            next_state = random.choice(next_states)
+            # next_state = self.exploitation(current_state, next_states)
+        return next_state
 
+    def sequence_of_actions(self, root: State):
+        current_state = root
+        path_of_concepts = []
+        rewards = []
+        # (1)
+        for _ in range(self.num_of_sequential_actions):
+            # (1.1) Obtain possible next states
+            next_states = self.next_possible_states(current_state)
+            # (1.2) Select a next state
+            next_state = self.choose_next_state(current_state, next_states)
+            # (1.3)
+            if isinstance(next_state.concept, Nothing):  # Dead END
+                # (1.4)
+                # path_of_concepts.append((current_state, next_state))
+                # (1.5)
+                # rewards.append(self.reward_func.calculate(current_state, next_state))
+                print('Found dead end')
+                break
 
-        #root = self.rho.getNode(self.start_class, root=True)
-        #self.assign_embeddings(root)
-        #sum_of_rewards_per_actions = []
+            else:
+                # (1.4)
+                path_of_concepts.append((current_state, next_state))
+                # (1.5)
+                current_state.individuals = self.reasoner.retrieve(concept=current_state.concept)
+                next_state.individuals = self.reasoner.retrieve(concept=next_state.concept)
+                rewards.append(self.reward_func.calculate(current_state, next_state))
+            # (1.6)
+            current_state = next_state
+        return path_of_concepts, rewards
 
+    def form_experiences(self, state_pairs: List[State], rewards: List[float]) -> None:
+        for th, consecutive_states in enumerate(state_pairs):
+            e, e_next = consecutive_states
+            # given e, e_next, Q val is the max Q value reachable.
+            self.experiences.append(self.get_embeddings(e.individuals), self.get_embeddings(e_next.individuals),
+                                    max(rewards[th:]))
+
+    def learn_from_replay_memory(self) -> None:
+        """
+        Learning by replaying memory
+        @return:
+        """
+        current_state_batch, next_state_batch, q_values = self.experiences.retrieve()
+        current_state_batch = torch.cat(current_state_batch, dim=0)
+        next_state_batch = torch.cat(next_state_batch, dim=0)
+        q_values = torch.Tensor(q_values)
+        dataset = PrepareBatchOfTraining(current_state_batch=current_state_batch,
+                                         next_state_batch=next_state_batch,
+                                         p=self.emb_pos, n=self.emb_neg, q=q_values)
+        num_experience = len(dataset)
+        data_loader = torch.utils.data.DataLoader(dataset,
+                                                  batch_size=self.batch_size, shuffle=True,
+                                                  num_workers=self.num_workers)
+        print(f'Number of experiences:{num_experience}\tDQL agent is learning via experience replay')
+        self.heuristic_func.net.train()
+        for m in range(self.num_epochs_per_replay):
+            total_loss = 0
+            for X, y in data_loader:
+                self.optimizer.zero_grad()  # zero the gradient buffers
+                # forward
+                predicted_q = self.heuristic_func.net.forward(X)
+                # loss
+                loss = self.heuristic_func.net.loss(predicted_q, y)
+                total_loss += loss.item()
+                # compute the derivative of the loss w.r.t. the parameters using backpropagation
+                loss.backward()
+                # clip gradients if gradients are killed. =>torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.5)
+                self.optimizer.step()
+            print(f'{m}.th Epoch average loss during training:{total_loss / num_experience}')
+
+        self.heuristic_func.net.train().eval()
+
+    def get_embeddings(self, individuals: Iterable[str]):
+        return torch.rand(5).view(1, 5)
+
+    def rl_learning_loop(self, pos, neg):
+        # 2. Obtain embeddings of positive and negative examples.
+        sum_of_rewards_per_actions = []
+        root = State(concept=self.reasoner.thing)
         print('RL agent starts to interact with the environment. Trajectories will be summarized.')
+        self.reward_func.pos = pos
+        self.reward_func.neg = neg
+        self.emb_pos = self.get_embeddings(pos)
+        self.emb_neg = self.get_embeddings(neg)
 
-        exit(1)
         for th in range(1, self.num_episode + 1):
-
-
-
             sequence_of_states, rewards = self.sequence_of_actions(root)
-            if th % log_every_n_episodes == 1:
-                self.describe_single_rl_loop(th,
-                                             sequence_of_states,
-                                             rewards=rewards)
-
             # (3.2) Form experiences for Experience Replay
             self.form_experiences(sequence_of_states, rewards)
-            sum_of_rewards_per_actions.append(sum(rewards))
-
             # (3.3) Experience Replay
-            if th % self.num_episodes_per_replay == 0:
-                self.learn_from_replay_memory()
-
-            if self.target_net and th % (self.num_episodes_per_replay * 3) == 0:
-                self.target_net.load_state_dict(self.heuristic_func.net.state_dict())
-
+            self.learn_from_replay_memory()
             # (3.4) Epsilon greedy => Exploration Exploitation
             self.epsilon -= self.epsilon_decay
             if self.epsilon < self.epsilon_min:
                 break
         return sum_of_rewards_per_actions
 
-    def train(self, learning_problems: iter):
-        for pos, neg, true_pos, str_concept in learning_problems:
-            for _ in range(2): # self.relearn_ratio
-                sum_of_rewards_per_actions = self.rl_learning_loop(pos=pos,neg=neg)
-            exit(1)
-
-        exit(1)
+    def train(self, learning_problems: Iterable[Tuple[Set[str], Set[str], Set[str], str]]) -> None:
+        """
+        An iterable of learning problems with an additional data
+        1. A set of positive example individuals
+        2. A set of negative example individuals
+        3. A set of individuals corresponding to the answer set
+        4. Target/Goal OWL class expression
+        """
+        for pos, neg, true_pos, owl_cls in learning_problems:
+            for _ in range(self.relearn_ratio):
+                sum_of_rewards_per_actions = self.rl_learning_loop(pos=pos, neg=neg)
+                print(sum_of_rewards_per_actions)
 
     def fit(self, pos: Set[str], neg: Set[str], ignore: Set[str] = None):
         """
         Find hypotheses that explain pos and neg.
         """
-        # 1. Set default rl state
-        self.default_state_rl()
-        # 2. Initialize learning problem
-        if len(ignore) == 0:
-            ignore = None
-        self.initialize_learning_problem(pos=pos, neg=neg, all_instances=self.kb.thing.instances, ignore=ignore)
-        # 3. Prepare embeddings of positive and negative examples
-        self.emb_pos, self.emb_neg = self.represent_examples(pos=pos, neg=neg)
-
-        # 4. Set start time for the first criterion for termination
-        self.start_time = time.time()
-        # 5. If w
-        if len(self.concepts_to_ignore) > 0:
-            for i in self.concepts_to_ignore:
-                if self.verbose > 1:
-                    print(f'States includes {i} will be ignored')
-                self.rho.remove_from_top_refinements(i)
-        else:
-            self.rho.compute_top_refinements()
-        # 5. Iterate until the second criterion is satisfied.
-        for i in range(1, self.iter_bound):
-            most_promising = self.next_node_to_expand(i)
-            next_possible_states = []
-            for ref in self.apply_rho(most_promising):
-                # Instance retrieval.
-                ref.concept.instances = self.kb.instance_retrieval(ref.concept)
-                if len(ref.concept.instances):
-                    # Compute quality
-                    self.search_tree.quality_func.apply(ref)
-                    if ref.quality == 0:
-                        continue
-                    next_possible_states.append(ref)
-                    if ref.quality == 1:
-                        break
-            try:
-                assert len(next_possible_states) > 0
-            except AssertionError:
-                print(f'DEAD END at {most_promising}')
-                raise
-            predicted_Q_values = self.predict_Q(current_state=most_promising, next_states=next_possible_states)
-            self.goal_found = self.update_search(next_possible_states, predicted_Q_values)
-            if self.goal_found:
-                if self.terminate_on_goal:
-                    return self.terminate()
-            if time.time() - self.start_time > self.max_runtime:
-                return self.terminate()
-            if self.number_of_tested_concepts >= self.max_num_of_concepts_tested:
-                return self.terminate()
-        return self.terminate()
-
-    def represent_examples(self, *, pos: Set[str], neg: Set[str]) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Represent E+ and E- by using embeddings of individuals.
-        Here, we take the average of embeddings of individuals.
-        @param pos:
-        @param neg:
-        @return:
-        """
-        assert isinstance(pos, set) and isinstance(neg, set)
-
-        emb_pos = torch.tensor(self.instance_embeddings.loc[list(pos)].values,
-                               dtype=torch.float32)
-        emb_neg = torch.tensor(self.instance_embeddings.loc[list(neg)].values,
-                               dtype=torch.float32)
-        assert emb_pos.shape[0] == len(pos)
-        assert emb_neg.shape[0] == len(neg)
-
-        # Take the mean of embeddings.
-        emb_pos = torch.mean(emb_pos, dim=0)
-        emb_pos = emb_pos.view(1, 1, emb_pos.shape[0])
-        emb_neg = torch.mean(emb_neg, dim=0)
-        emb_neg = emb_neg.view(1, 1, emb_neg.shape[0])
-        return emb_pos, emb_neg
-
-    def init_training(self, pos_uri: Set[str], neg_uri: Set[str]) -> None:
-        """
-
-        @param pos_uri: A set of positive examples where each example corresponds to a string representation of an individual/instance.
-        @param neg_uri: A set of negative examples where each example corresponds to a string representation of an individual/instance.
-        @return:
-        """
-        # 1.
-        self.reward_func.pos = pos_uri
-        self.reward_func.neg = neg_uri
-
         # 2. Obtain embeddings of positive and negative examples.
-        self.emb_pos = torch.tensor(self.instance_embeddings.loc[list(pos_uri)].values, dtype=torch.float32)
-        self.emb_neg = torch.tensor(self.instance_embeddings.loc[list(neg_uri)].values, dtype=torch.float32)
+        sum_of_rewards_per_actions = []
+        root = State(concept=self.reasoner.thing)
+        print('RL agent starts to interact with the environment. Trajectories will be summarized.')
+        self.emb_pos = self.get_embeddings(pos)
+        self.emb_neg = self.get_embeddings(neg)
 
-        # (3) Take the mean of positive and negative examples and reshape it into (1,1,embedding_dim) for mini batching.
-        self.emb_pos = torch.mean(self.emb_pos, dim=0)
-        self.emb_pos = self.emb_pos.view(1, 1, self.emb_pos.shape[0])
-        self.emb_neg = torch.mean(self.emb_neg, dim=0)
-        self.emb_neg = self.emb_neg.view(1, 1, self.emb_neg.shape[0])
-        # Sanity checking
-        if torch.isnan(self.emb_pos).any() or torch.isinf(self.emb_pos).any():
-            print(string_balanced_pos)
-            raise ValueError('invalid value detected in E+,\n{0}'.format(self.emb_pos))
-        if torch.isnan(self.emb_neg).any() or torch.isinf(self.emb_neg).any():
-            raise ValueError('invalid value detected in E-,\n{0}'.format(self.emb_neg))
 
-        # Default exploration exploitation tradeoff.
-        self.epsilon = 1
+        current_state = root
+        path_of_concepts = []
+        rewards = []
+        # (1)
+
+        for i in range(1, self.iter_bound):
+            # (1) Find best state
+            next_states = self.get_best_state(current_state)
+            # (2) Obtain refinements/ of (1)
+            # (3) Add good ones into search tree
+            # (4) Does the search tree contains a goal node ?
+            # (5) If no, Go to (1)
+            # (6) Exit
+
 
     def terminate_training(self):
         self.save_weights()
@@ -281,32 +321,24 @@ class Drill(nn.Module):
 
     def __init__(self, args):
         super(Drill, self).__init__()
-        self.in_channels, self.embedding_dim = args['input_shape']
         self.loss = nn.MSELoss()
-
-        self.conv1 = nn.Conv2d(in_channels=self.in_channels,
-                               out_channels=args['first_out_channels'],
-                               kernel_size=args['kernel_size'],
-                               padding=1, stride=1, bias=True)
-
+        self.conv1 = nn.Conv2d(in_channels=4,
+                               out_channels=3,
+                               kernel_size=3,
+                               padding=1, stride=1, bias=False)
         # Fully connected layers.
-        self.size_of_fc1 = int(args['first_out_channels'] * self.embedding_dim)
+        self.size_of_fc1 = int(args['first_out_channels'] * 5)
         self.fc1 = nn.Linear(in_features=self.size_of_fc1, out_features=self.size_of_fc1 // 2)
         self.fc2 = nn.Linear(in_features=self.size_of_fc1 // 2, out_features=args['num_output'])
-
         self.init()
-        assert self.__sanity_checking(torch.rand(32, 4, 1, self.embedding_dim)).shape == (32, 1)
 
     def init(self):
         xavier_normal_(self.fc1.weight.data)
+        xavier_normal_(self.fc2.weight.data)
         xavier_normal_(self.conv1.weight.data)
 
-    def __sanity_checking(self, X):
-        return self.forward(X)
-
     def forward(self, X: torch.FloatTensor):
-        X = F.relu(self.conv1(X))
-        X = X.view(X.shape[0], X.shape[1] * X.shape[2] * X.shape[3])
+        X = F.relu(self.conv1(X)).flatten(start_dim=1)
         X = F.relu(self.fc1(X))
         return self.fc2(X)
 
@@ -357,3 +389,93 @@ class DrillProba(nn.Module):
         X = X.view(X.shape[0], X.shape[1] * X.shape[2] * X.shape[3])
         X = F.relu(self.fc1(X))
         return torch.sigmoid(self.fc2(X))
+
+
+class Experience:
+    """
+    A class to model experiences for Replay Memory.
+    """
+
+    def __init__(self, maxlen: int):
+        # @TODO we may want to not forget experiences yielding high rewards
+        self.current_states_embeddings = deque(maxlen=maxlen)
+        self.next_states_embeddings = deque(maxlen=maxlen)
+        self.rewards = deque(maxlen=maxlen)
+
+    def __len__(self):
+        assert len(self.current_states) == len(self.next_states) == len(self.rewards)
+        return len(self.current_states)
+
+    def append(self, current_state: torch.FloatTensor, next_state: torch.FloatTensor, reward: float):
+        """
+        Embeddings of current state
+        Embeddings of next steate
+        """
+        assert current_state.shape == next_state.shape
+        self.current_states_embeddings.append(current_state)
+        self.next_states_embeddings.append(next_state)
+        self.rewards.append(reward)
+
+    def retrieve(self):
+        return list(self.current_states_embeddings), list(self.next_states_embeddings), list(self.rewards)
+
+    def clear(self):
+        self.current_states.clear()
+        self.next_states.clear()
+        self.rewards.clear()
+
+
+class PrepareBatchOfTraining(torch.utils.data.Dataset):
+
+    def __init__(self, current_state_batch: torch.FloatTensor, next_state_batch: torch.FloatTensor,
+                 p: torch.FloatTensor,
+                 n: torch.FloatTensor, q: torch.FloatTensor):
+        """
+        current_state_batch n by d matrix
+        next_state_batch n by d matrix
+        p k by d matrix
+        n m by d matrix
+        q row of n
+        """
+        # Sanity checking
+        if torch.isnan(current_state_batch).any() or torch.isinf(current_state_batch).any():
+            raise ValueError('invalid value detected in current_state_batch,\n{0}'.format(current_state_batch))
+        if torch.isnan(next_state_batch).any() or torch.isinf(next_state_batch).any():
+            raise ValueError('invalid value detected in next_state_batch,\n{0}'.format(next_state_batch))
+        if torch.isnan(p).any() or torch.isinf(p).any():
+            raise ValueError('invalid value detected in p,\n{0}'.format(p))
+        if torch.isnan(n).any() or torch.isinf(n).any():
+            raise ValueError('invalid value detected in p,\n{0}'.format(n))
+        if torch.isnan(q).any() or torch.isinf(q).any():
+            raise ValueError('invalid Q value  detected during batching.')
+
+        self.S = current_state_batch.unsqueeze(1)
+        self.S_Prime = next_state_batch.unsqueeze(1)
+        self.y = q.view(len(q), 1)
+        assert self.S.shape == self.S_Prime.shape
+        assert len(self.y) == len(self.S)
+        try:
+            self.Positives = p.expand(next_state_batch.shape).unsqueeze(1)
+        except RuntimeError as e:
+            print(p.shape)
+            print(next_state_batch.shape)
+            print(e)
+            raise
+        self.Negatives = n.expand(next_state_batch.shape).unsqueeze(1)
+
+        self.X = torch.cat([self.S, self.S_Prime, self.Positives, self.Negatives], 1).unsqueeze(2)
+        if torch.isnan(self.X).any() or torch.isinf(self.X).any():
+            print('invalid input detected during batching in X')
+            raise ValueError
+        if torch.isnan(self.y).any() or torch.isinf(self.y).any():
+            print('invalid Q value  detected during batching in Y')
+            raise ValueError
+
+        # number of data points x inputchannel x height x width
+        # print(self.X.shape)
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]

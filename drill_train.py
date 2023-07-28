@@ -1,5 +1,10 @@
 # from ontolearn import KnowledgeBase, LearningProblemGenerator, DrillAverage, DrillProbabilistic
 # from ontolearn.util import sanity_checking_args
+# from owlapy.parser import DLSyntaxParser
+# from owlapy.owl2sparql.converter import Owl2SparqlConverter
+# parser = DLSyntaxParser("http://www.benchmark.org/family#")
+# converter = Owl2SparqlConverter()
+# print(converter.as_query("?var", parser.parse_expression('≥ 2 hasChild.Mother'), False))
 from argparse import ArgumentParser
 import os
 import json
@@ -9,7 +14,8 @@ import torch
 import numpy as np
 from drill import DrillAverage
 from metrics import F1
-from typing import Iterable,Set, Tuple
+from typing import Iterable, Set, Tuple
+
 random_seed = 1
 random.seed(random_seed)
 torch.manual_seed(random_seed)
@@ -23,22 +29,16 @@ class LearningProblemGenerator:
     def generate(self) -> Iterable[Tuple[Set[str], Set[str], Set[str], str]]:
         """ Generate learning problems """
         # Convert into generator later on
-        result=[]
-        for c in self.reasoner.get_named_concepts():
+        result = []
+        for c in self.reasoner.named_concepts:
             individuals = self.reasoner.retrieve(c)
             assert isinstance(individuals, set)
             if len(individuals) > 3:
                 pos = set(random.sample(individuals, 3))
                 neg = set(random.sample(self.reasoner.individuals, 3))
-                result.append((pos, neg, individuals, c.iri))
+                result.append((pos, neg, individuals, c))
         return result
 
-
-# from owlapy.parser import DLSyntaxParser
-# from owlapy.owl2sparql.converter import Owl2SparqlConverter
-# parser = DLSyntaxParser("http://www.benchmark.org/family#")
-# converter = Owl2SparqlConverter()
-# print(converter.as_query("?var", parser.parse_expression('≥ 2 hasChild.Mother'), False))
 
 class Trainer:
     def __init__(self, args):
@@ -52,12 +52,11 @@ class Trainer:
             json.dump(temp, file_descriptor)
 
     def start(self):
-        # 1. Parse KG.
+        # (1). Parse KG.
         reasoner = SPARQLCWR(url=self.args.endpoint, name='Fuseki')
-
-        # 2. Generate Learning Problems.
+        # (2). Generate Learning Problems.
         lp = LearningProblemGenerator(reasoner=reasoner)
-
+        # (3) Initialize DRILL
         drill = DrillAverage(reasoner=reasoner, pretrained_model_path=self.args.pretrained_drill_avg_path,
                              quality_func=F1(),
                              drill_first_out_channels=self.args.drill_first_out_channels,
@@ -75,8 +74,10 @@ class Trainer:
                              use_illustrations=self.args.use_illustrations,
                              verbose=self.args.verbose,
                              num_workers=self.args.num_workers)
-        drill.train(lp.generate())
-        print('Completed.')
+        #drill.train(lp.generate())
+        print('Training is completed.')
+        for pos, neg, true_pos, owl_cls in lp.generate():
+            predicted_owl_cls=drill.fit(pos=pos,neg=neg)
 
 
 if __name__ == '__main__':

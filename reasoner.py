@@ -1,4 +1,5 @@
 # from util import jaccard_similarity, compute_prediction, evaluate_results
+import concurrent.futures
 
 import dicee
 import requests
@@ -7,6 +8,10 @@ from abc import ABC, abstractmethod
 from typing import Set, Iterable
 
 from abc import ABC
+from owlapy.parser import DLSyntaxParser
+from owlapy.owl2sparql.converter import Owl2SparqlConverter
+import time
+import asyncio
 
 
 class AbstractDLConcept(ABC):
@@ -106,6 +111,7 @@ class ConjunctionDLConcept(AbstractDLConcept):
         self.left = concept_a
         self.right = concept_b
         self.length = concept_a.length + concept_b.length + 1
+        self.iri = [(self.left.iri, self.right.iri)]
 
     @property
     def manchester_str(self):
@@ -146,6 +152,7 @@ class DisjunctionDLConcept(AbstractDLConcept):
         self.left = concept_a
         self.right = concept_b
         self.length = concept_a.length + concept_b.length + 1
+        self.iri = [(self.left.iri, self.right.iri)]
 
     @property
     def manchester_str(self):
@@ -169,8 +176,9 @@ class DisjunctionDLConcept(AbstractDLConcept):
         return ConjunctionDLConcept(concept_a=self, concept_b=other)
 
 
-class NC:
+class NC(AbstractDLConcept):
     def __init__(self, iri: str):
+        super(NC, self).__init__()
         assert isinstance(iri, str)
         assert len(iri) > 0
         self.iri = iri
@@ -252,10 +260,29 @@ class AbstractReasoner(ABC):
         raise NotImplementedError()
 
 
-class Top:
+class Thing:
     def __init__(self):
-        self.str = 'T'
+        self.str = '⊤'
         self.length = 1
+        self.iri = "<http://www.w3.org/2002/07/owl#Thing>"
+
+    @property
+    def manchester_str(self):
+        return "Thing"
+
+
+class Nothing:
+    def __init__(self):
+        self.str = '⊥'
+        self.length = 1
+        self.iri = "<http://www.w3.org/2002/07/owl#Nothing>"
+
+    @property
+    def manchester_str(self):
+        return "Nothing"
+
+
+from owlapy.model import OWLThing, OWLNothing, OWLClass, IRI, OWLObjectUnionOf, OWLObjectIntersectionOf
 
 
 class SPARQLCWR(AbstractReasoner):
@@ -263,52 +290,71 @@ class SPARQLCWR(AbstractReasoner):
         super(SPARQLCWR, self)
         self.url = url
         self.name = name
-        # Check whether the input data is fully materialized.
+        self.thing = OWLThing
+        self.nothing = OWLNothing
+        # (1) Find all named concepts:Assume that the forward-chain is applied
+        self.iri_named_concepts = self.query("PREFIX owl: <http://www.w3.org/2002/07/owl#>\n"
+                                             "SELECT DISTINCT ?var\n"
+                                             "WHERE {?var a owl:Class.}")
+        # (3) Detect the name space.
+        self.namespace = None
+        # How do you get base IRI ?
+        for i in self.iri_named_concepts:
+            if self.namespace is None:
+                # start 1 because of the left bracket <...>
+                self.namespace = i[1:i.index('#') + 1]
+            else:
+                assert self.namespace == i[1:i.index('#') + 1]
+        self.parser = DLSyntaxParser(self.namespace)
+        self.converter = Owl2SparqlConverter()
+        self.named_concepts = set()
+        for i in self.iri_named_concepts:
+            remainder = i[i.index(self.namespace) + len(self.namespace):-1]
+            self.named_concepts.add(OWLClass(iri=IRI(namespace=self.namespace, remainder=remainder)))
 
-        self.str_individuals = self.query("PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\n"
-                                          "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n"
+        # (2) Find all named individuals.
+        self.str_individuals = self.query("PREFIX owl: <http://www.w3.org/2002/07/owl#>\n"
                                           "SELECT DISTINCT ?var\n"
-                                          "WHERE {\n"
-                                          "?var a ?type.\n"
-                                          "?type rdfs:subClassOf ?y.\n"
-                                          "FILTER NOT EXISTS {?type rdf:type rdf:Class}\n"
-                                          "FILTER NOT EXISTS {?type rdf:type rdf:Property}}")
-
-        if self.str_individuals == self.query("PREFIX owl: <http://www.w3.org/2002/07/owl#>\n"
+                                          "WHERE {?var a owl:NamedIndividual.}")
+        if self.str_individuals == self.query("PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\n"
+                                              "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n"
                                               "SELECT DISTINCT ?var\n"
-                                              "WHERE {?var a owl:NamedIndividual.}"):
+                                              "WHERE {\n"
+                                              "?var a ?type.\n"
+                                              "?type rdfs:subClassOf ?y.\n"
+                                              "FILTER NOT EXISTS {?type rdf:type rdf:Class}\n"
+                                              "FILTER NOT EXISTS {?type rdf:type rdf:Property}}"):
             self.materialized = True
         else:
             self.materialized = False
 
-        print('Data is materialized:',self.materialized)
+    def __str__(self):
+        return f"SPARQLCWR:|Individuals|:{len(self.individuals)}\t |Concepts|:{len(self.concepts)}"
 
-        self.str_concepts = self.query("PREFIX owl: <http://www.w3.org/2002/07/owl#>\n"
-                                       "SELECT DISTINCT ?var\n"
-                                       "WHERE {?var a owl:Class.}")
+    def sanity_checking(self):
+        # https://stackoverflow.com/questions/22190403/how-could-i-use-requests-in-asyncio
+        for i in self.named_concepts:
+            for j in self.named_concepts:
+                if i == j:
+                    continue
+                print(i, j)
+                x = OWLObjectUnionOf(operands=[i, i])
+                print(f"{x}\t{len(self.retrieve(x))}")
+                x = OWLObjectUnionOf(operands=[i, j])
+                print(f"{x}\t{len(self.retrieve(x))}")
+                x = OWLObjectUnionOf(operands=[self.thing, i])
+                print(f"{x}\t{len(self.retrieve(x))}")
+                x = OWLObjectUnionOf(operands=[i, self.nothing])
+                print(f"{x}\t{len(self.retrieve(x))}")
+                x = OWLObjectUnionOf(operands=[self.thing, self.nothing])
+                print(f"{x}\t{len(self.retrieve(x))}")
 
-        self.base_iri = None
-        # How do you get base IRI ?
-        for i in self.str_concepts:
-            if self.base_iri is None:
-                # start 1 because of the left bracket <...>
-                self.base_iri = i[1:i.index('#') + 1]
-            else:
-                assert self.base_iri == i[1:i.index('#') + 1]
-
-        self.top = Top()
-        self.bottom = None
+    def sparql(self, cls: OWLClass):
+        return self.converter.as_query("?var", cls, False)
 
     @property
     def individuals(self):
         return self.str_individuals
-
-    @property
-    def concepts(self):
-        return self.str_concepts
-
-    def __str__(self):
-        return f"SPARQLCWR:|Individuals|:{len(self.individuals)}\t |Concepts|:{len(self.concepts)}"
 
     def query(self, query: str) -> Set[str]:
         """
@@ -318,10 +364,11 @@ class SPARQLCWR(AbstractReasoner):
         """
         response = requests.post(self.url, data={'query': query})
         if response.ok:
-            return {'<' + i['var']['value'] + '>' for i in response.json()['results']['bindings']}
-
+            answer = response.json()['results']['bindings']
+            return {'<' + i['var']['value'] + '>' for i in answer}
         else:
             print(response)
+            print(query)
             raise RuntimeWarning('Something went wrong..')
 
     def retrieve(self, concept) -> Set[str]:
@@ -330,26 +377,20 @@ class SPARQLCWR(AbstractReasoner):
         :param concept:
         :return:
         """
-        if isinstance(concept, NC):
-            sparql_mapping = "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n" \
-                             "SELECT DISTINCT ?var\n" \
-                             "WHERE {\n" \
-                             f"\t?var rdf:type {concept.iri}" \
-                             "\n}"
-            return self.query(sparql_mapping)
-        elif isinstance(concept, Top):
-            return self.str_individuals
-        else:
-            raise NotImplementedError
-        if isinstance(concept, Restriction) and concept.opt == '∀':
-            # A concept retrieval for ∀ r.C is performed by \neg \∃ r. ∃C
-            # given '∀' r.C, convert it into \neg r. \neg C
-            sparql_query = converter.as_query("?var", parser.parse_expression(
-                Restriction(opt="∃", role=concept.role_iri, filler=concept.filler.neg()).str), False)
-            return self.all_individuals.difference(self.query(sparql_query))
-        else:
-            sparql_query = converter.as_query("?var", parser.parse_expression(concept.str), False)
-            return self.query(sparql_query)
+        try:
+            sparql_mapping = self.sparql(concept)
+        except:
+            print(concept)
+            print('Errr at SPARQL conversion')
+            return set()
+        return self.query(sparql_mapping)
+
+    def apply_construction_rules(self, concept):
+        results = set()
+        for i in self.named_concepts:
+            results.add(OWLObjectUnionOf(operands=[i, concept]))
+            results.add(OWLObjectIntersectionOf(operands=[i, concept]))
+        return results
 
     def old_retrieve(self, concept) -> Set[str]:
         """
@@ -366,9 +407,6 @@ class SPARQLCWR(AbstractReasoner):
         else:
             sparql_query = converter.as_query("?var", parser.parse_expression(concept.str), False)
             return self.query(sparql_query)
-
-    def get_named_concepts(self) -> Iterable[NC]:
-        return (NC(iri=i) for i in self.concepts)
 
     def atomic_concept(self, concept: NC) -> Set[str]:
         """ {x | f(x,type,concept) \ge \gamma} """

@@ -12,7 +12,8 @@ conda create -n drill python=3.10 && conda activate drill
 
 # Dependencies
 pip install dicee
-
+pip3 install parsimonious
+pip3 install rdflib
 ```
 # Preprocessing 
 Unzip knowledge graphs, embeddings, learning problems and pretrained models.
