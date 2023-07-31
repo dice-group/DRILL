@@ -28,16 +28,13 @@ class LearningProblemGenerator:
 
     def generate(self) -> Iterable[Tuple[Set[str], Set[str], Set[str], str]]:
         """ Generate learning problems """
-        # Convert into generator later on
-        result = []
         for c in self.reasoner.named_concepts:
             individuals = self.reasoner.retrieve(c)
             assert isinstance(individuals, set)
             if len(individuals) > 3:
                 pos = set(random.sample(individuals, 3))
                 neg = set(random.sample(self.reasoner.individuals, 3))
-                result.append((pos, neg, individuals, c))
-        return result
+                yield pos, neg, individuals, c
 
 
 class Trainer:
@@ -74,10 +71,16 @@ class Trainer:
                              use_illustrations=self.args.use_illustrations,
                              verbose=self.args.verbose,
                              num_workers=self.args.num_workers)
-        #drill.train(lp.generate())
+        # drill.train(lp.generate())
         print('Training is completed.')
+        f1_score = F1()
         for pos, neg, true_pos, owl_cls in lp.generate():
-            predicted_owl_cls=drill.fit(pos=pos,neg=neg)
+            training_f1, predicted_cls = drill.fit(pos=pos, neg=neg)
+            print('True Class Expression',owl_cls)
+            print('Predicted Class Expression', predicted_cls.concept)
+            print('Training F1:', training_f1)
+            print("F1:", f1_score(pos=true_pos, neg=neg, individuals=predicted_cls.individuals))
+            break
 
 
 if __name__ == '__main__':

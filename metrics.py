@@ -1,5 +1,7 @@
 from typing import Set
 from abstracts import AbstractScorer
+
+
 class Recall(AbstractScorer):
     def __init__(self, pos=None, neg=None, unlabelled=None):
         super().__init__(pos, neg, unlabelled)
@@ -76,7 +78,14 @@ class F1(AbstractScorer):
         self.beta = 0
         self.noise = 0
 
-    def score(self, pos, neg, instances):
+    def __call__(self, pos, neg, individuals):
+        assert isinstance(pos,set) and len(pos)>0
+        assert isinstance(neg, set) and len(pos)>0
+        assert isinstance(individuals, set) and len(pos)>0
+
+        return self.score(pos, neg, individuals)
+
+    def score(self, pos:Set[str], neg:Set[str], instances:Set[str]):
         self.pos = pos
         self.neg = neg
 
@@ -96,7 +105,7 @@ class F1(AbstractScorer):
             precision = tp / (tp + fp)
             f_1 = 2 * ((precision * recall) / (precision + recall))
         except ZeroDivisionError:
-            f_1 = 0
+            f_1 = 0.0
 
         return round(f_1, 5)
 

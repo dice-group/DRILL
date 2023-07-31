@@ -1,5 +1,5 @@
 from abc import ABCMeta
-from collections import deque
+from collections import deque, OrderedDict
 import owlapy.model
 from abstracts import AbstractScorer
 
@@ -16,6 +16,7 @@ from torch.nn.init import xavier_normal_
 import random
 from reasoner import Nothing
 from heuristics import BinaryReward, Reward
+from metrics import F1
 
 
 class State:
@@ -38,6 +39,181 @@ class State:
             return length
         else:
             raise NotImplementedError('Type of the concept is not recognized')
+
+    def __lt__(self, other):
+        return len(self) < len(other)
+
+
+from queue import PriorityQueue
+from abc import abstractmethod
+
+
+class DRILLAbstractTree:
+    @abstractmethod
+    def __init__(self):
+        self._nodes = dict()
+
+    def __len__(self):
+        return len(self._nodes)
+
+    def __getitem__(self, item):
+        return self._nodes[item]
+
+    def __setitem__(self, k, v):
+        self._nodes[k] = v
+
+    def __iter__(self):
+        for k, node in self._nodes.items():
+            yield node
+
+    def get_top_n_nodes(self, n: int, key='quality'):
+        self.sort_search_tree_by_decreasing_order(key=key)
+        for ith, dict_ in enumerate(self._nodes.items()):
+            if ith >= n:
+                break
+            k, node = dict_
+            yield node
+
+    def redundancy_check(self, n):
+        if n in self._nodes:
+            return False
+        return True
+
+    @property
+    def nodes(self):
+        return self._nodes
+
+    @abstractmethod
+    def add(self, *args, **kwargs):
+        pass
+
+    def sort_search_tree_by_decreasing_order(self, *, key: str):
+        if key == 'heuristic':
+            sorted_x = sorted(self._nodes.items(), key=lambda kv: kv[1].heuristic, reverse=True)
+        elif key == 'quality':
+            sorted_x = sorted(self._nodes.items(), key=lambda kv: kv[1].quality, reverse=True)
+        elif key == 'length':
+            sorted_x = sorted(self._nodes.items(), key=lambda kv: len(kv[1]), reverse=True)
+        else:
+            raise ValueError('Wrong Key. Key must be heuristic, quality or concept_length')
+
+        self._nodes = OrderedDict(sorted_x)
+
+    def best_hypotheses(self, n=10) -> List:
+        assert self.search_tree is not None
+        assert len(self.search_tree) > 1
+        return [i for i in self.search_tree.get_top_n_nodes(n)]
+
+    def show_search_tree(self, th=0, top_n=10):
+        """
+        Show search tree.
+        """
+        print(f'######## {th}.step\t Top 10 nodes in Search Tree \t |Search Tree|={self.__len__()} ###########')
+        predictions = list(self.get_top_n_nodes(top_n))
+        for ith, node in enumerate(predictions):
+            print(f'{ith + 1}-\t{node}')
+        print('######## Search Tree ###########\n')
+        return predictions
+
+    def show_best_nodes(self, top_n, key=None):
+        assert key
+        self.sort_search_tree_by_decreasing_order(key=key)
+        return self.show_search_tree('Final', top_n=top_n + 1)
+
+    @staticmethod
+    def save_current_top_n_nodes(key=None, n=10, path=None):
+
+        """
+        Save current top_n nodes
+        """
+        assert path
+        assert key
+        assert isinstance(n, int)
+        pass
+
+    def clean(self):
+        self._nodes.clear()
+
+
+class SearchTree(DRILLAbstractTree):
+    """
+
+    Search tree based on priority queue.
+
+    Parameters
+    ----------
+    quality_func : An instance of a subclass of AbstractScorer that measures the quality of a node.
+    heuristic_func : An instance of a subclass of AbstractScorer that measures the promise of a node.
+
+    Attributes
+    ----------
+    quality_func : An instance of a subclass of AbstractScorer that measures the quality of a node.
+    heuristic_func : An instance of a subclass of AbstractScorer that measures the promise of a node.
+    items_in_queue: An instance of PriorityQueue Class.
+    .nodes: A dictionary where keys are string representation of nodes and values are corresponding node objects.
+    nodes: A property method for ._nodes.
+    expressionTests: not being used .
+    str_to_obj_instance_mapping: not being used.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.items_in_queue = PriorityQueue()
+
+    def __len__(self):
+        return len(self.items_in_queue.queue)
+
+    def add(self, state: State, priority: float):
+        """
+        Append a node into the search tree.
+        Parameters
+        ----------
+        state :
+        priority:
+        Returns
+        -------
+        None
+        """
+        self.items_in_queue.put((-priority, state))  # gets the smallest one.
+
+    def get(self) -> Tuple:
+        """
+        Gets the current most promising node from Queue.
+
+        Returns
+        -------
+        node: A node object
+        """
+        priority, state = self.items_in_queue.get(block=True, timeout=1.0)  # get
+        return -priority, state
+
+    def empty(self):
+        return self.items_in_queue.empty()
+
+    def get_top_n(self, n: int, key='quality') -> List[State]:
+        """
+        Gets the top n nodes determined by key from the search tree.
+
+        Returns
+        -------
+        top_n_predictions: A list of node objects
+        """
+        all_nodes = self.refined_nodes + self.nodes.values()
+        all_nodes.union(self.nodes)
+
+        if key == 'quality':
+            top_n_predictions = sorted(all_nodes, key=lambda node: node.quality, reverse=True)[:n]
+        elif key == 'heuristic':
+            top_n_predictions = sorted(all_nodes, key=lambda node: node.heuristic, reverse=True)[:n]
+        elif key == 'length':
+            top_n_predictions = sorted(self.nodes.values(), key=lambda node: len(node), reverse=True)[:n]
+        else:
+            print('Wrong Key:{0}\tProgram exist.'.format(key))
+            raise KeyError
+        return top_n_predictions
+
+    def clean(self):
+        self.items_in_queue = PriorityQueue()
 
 
 class DrillAverage:
@@ -74,7 +250,11 @@ class DrillAverage:
         self.emb_pos: torch.FloatTensor = None
         self.emb_neg: torch.FloatTensor = None
         self.experiences = Experience(maxlen=self.max_len_replay_memory)
-        self.iter_bound=100
+        self.quality_func = quality_func
+        self.search_tree = SearchTree()
+        self.quality_tree = SearchTree()
+
+        self.iter_bound = 2
         arg_net = {'input_shape': (4 * self.sample_size, self.embedding_dim),
                    'first_out_channels': self.drill_first_out_channels, 'num_output': 1, 'kernel_size': 3}
 
@@ -93,10 +273,10 @@ class DrillAverage:
 
         print('Number of parameters: ', sum([p.numel() for p in self.heuristic_func.net.parameters()]))
 
-    def next_possible_states(self, current_state: State) -> List[State]:
+    def next_possible_states(self, current_state: State) -> Iterable[State]:
         """ given a State, return all possible next states"""
-        return [State(concept=i, previous_state=current_state) for i in
-                self.reasoner.apply_construction_rules(current_state.concept)]
+        return (State(concept=i, previous_state=current_state) for i in
+                self.reasoner.apply_construction_rules(current_state.concept))
 
     def exploitation(self, current_state: State, next_states: Set[State]) -> State:
         pass
@@ -189,7 +369,8 @@ class DrillAverage:
 
         self.heuristic_func.net.train().eval()
 
-    def get_embeddings(self, individuals: Iterable[str]):
+    def get_embeddings_individuals(self, individuals: Iterable[str]):
+        assert isinstance(individuals, set) and len(individuals) > 0
         return torch.rand(5).view(1, 5)
 
     def rl_learning_loop(self, pos, neg):
@@ -199,8 +380,8 @@ class DrillAverage:
         print('RL agent starts to interact with the environment. Trajectories will be summarized.')
         self.reward_func.pos = pos
         self.reward_func.neg = neg
-        self.emb_pos = self.get_embeddings(pos)
-        self.emb_neg = self.get_embeddings(neg)
+        self.emb_pos = self.get_embeddings_individuals(pos)
+        self.emb_neg = self.get_embeddings_individuals(neg)
 
         for th in range(1, self.num_episode + 1):
             sequence_of_states, rewards = self.sequence_of_actions(root)
@@ -227,32 +408,54 @@ class DrillAverage:
                 sum_of_rewards_per_actions = self.rl_learning_loop(pos=pos, neg=neg)
                 print(sum_of_rewards_per_actions)
 
+    def next_states(self, state: State):
+        # (1) Apply DL construction rules.
+        for next_state in self.next_possible_states(state):
+            # (2) Retrieve individuals.
+            next_state.individuals = self.reasoner.retrieve(concept=next_state.concept)
+            # No individuals
+            if len(next_state.individuals) == 0:
+                continue
+            # (3) Retrieve embeddings of individuals.
+            next_state.embeddings = self.get_embeddings_individuals(next_state.individuals)
+            yield next_state
+
     def fit(self, pos: Set[str], neg: Set[str], ignore: Set[str] = None):
-        """
-        Find hypotheses that explain pos and neg.
-        """
-        # 2. Obtain embeddings of positive and negative examples.
-        sum_of_rewards_per_actions = []
+        """ Find hypotheses that explain pos and neg. """
+        assert len(pos) > 1 and len(neg) > 1
+        self.search_tree.clean()
+        self.quality_tree.clean()
+        # (1) Initialize the root state of the RL environment
         root = State(concept=self.reasoner.thing)
-        print('RL agent starts to interact with the environment. Trajectories will be summarized.')
-        self.emb_pos = self.get_embeddings(pos)
-        self.emb_neg = self.get_embeddings(neg)
+        root.individuals = self.reasoner.retrieve(concept=root.concept)
+        root.embeddings = self.get_embeddings_individuals(root.individuals)
 
+        # (2) Get embeddings for positive and negative examples.
+        emb_pos = self.get_embeddings_individuals(pos)
+        emb_neg = self.get_embeddings_individuals(neg)
 
-        current_state = root
-        path_of_concepts = []
-        rewards = []
-        # (1)
+        current_state = None
+        # (3) Search starts
+        print('Learning Problem')
+        print("Pos:", pos)
+        print("Neg:", neg)
+        for i in range(self.iter_bound):
+            if current_state is None:
+                current_state = root
+            else:
+                # (1) Remove the best from the queue.
+                _, current_state = self.search_tree.get()
+            # Exploit
+            for next_state in self.next_states(state=current_state):
+                heuristic_score = self.heuristic_func.forward(e_state=current_state.embeddings,
+                                                              e_next_state=next_state.embeddings,
+                                                              e_pos=emb_pos,
+                                                              e_neg=emb_neg)
+                f1_score = self.quality_func(pos=pos, neg=neg, individuals=next_state.individuals)
 
-        for i in range(1, self.iter_bound):
-            # (1) Find best state
-            next_states = self.get_best_state(current_state)
-            # (2) Obtain refinements/ of (1)
-            # (3) Add good ones into search tree
-            # (4) Does the search tree contains a goal node ?
-            # (5) If no, Go to (1)
-            # (6) Exit
-
+                self.search_tree.add(state=next_state, priority=heuristic_score)
+                self.quality_tree.add(state=next_state, priority=f1_score)
+        return self.quality_tree.get()
 
     def terminate_training(self):
         self.save_weights()
@@ -290,16 +493,23 @@ class DrillHeuristic(AbstractScorer):
             raise ValueError
         self.net.eval()
 
-    def score(self, node, parent_node=None):
-        """ Compute heuristic value of root node only"""
-        if parent_node is None and node.is_root:
-            return torch.FloatTensor([.0001]).squeeze()
-        raise ValueError
+    def score(self, *args, **kwargs):
+        raise NotImplementedError()
 
-    def apply(self, node, parent_node=None):
-        """ Assign predicted Q-value to node object."""
-        predicted_q_val = self.score(node, parent_node)
-        node.heuristic = predicted_q_val
+    def apply(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def forward(self, e_state: torch.FloatTensor, e_next_state: torch.FloatTensor, e_pos: torch.FloatTensor,
+                e_neg: torch.FloatTensor) -> float:
+
+        e_state = e_state.unsqueeze(1)
+        e_next_state = e_next_state.unsqueeze(1)
+        e_pos = e_pos.unsqueeze(1)
+        e_neg = e_neg.unsqueeze(1)
+        # n x input_channel x height x width
+        # 1 x 4 x 1 x d
+        X = torch.cat((e_state, e_next_state, e_pos, e_neg), 1).unsqueeze(2)
+        return self.net.forward(X).item()
 
 
 class Drill(nn.Module):
