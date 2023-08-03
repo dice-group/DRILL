@@ -28,7 +28,7 @@ class LearningProblemGenerator:
 
     def generate(self) -> Iterable[Tuple[Set[str], Set[str], Set[str], str]]:
         """ Generate learning problems """
-        for c in self.reasoner.named_concepts:
+        for c in self.reasoner.concepts:
             individuals = self.reasoner.retrieve(c)
             assert isinstance(individuals, set)
             if len(individuals) > 3:
@@ -49,12 +49,13 @@ class Trainer:
             json.dump(temp, file_descriptor)
 
     def start(self):
-        # (1). Parse KG.
+        # (1) Initialize the connection to a triple store.
         reasoner = SPARQLCWR(url=self.args.endpoint, name='Fuseki')
         # (2). Generate Learning Problems.
         lp = LearningProblemGenerator(reasoner=reasoner)
         # (3) Initialize DRILL
-        drill = DrillAverage(reasoner=reasoner, pretrained_model_path=self.args.pretrained_drill_avg_path,
+        drill = DrillAverage(reasoner=reasoner,
+                             pretrained_model_path=self.args.pretrained_drill_avg_path,
                              quality_func=F1(),
                              drill_first_out_channels=self.args.drill_first_out_channels,
                              path_of_embeddings=self.args.path_knowledge_base_embeddings,
@@ -72,15 +73,13 @@ class Trainer:
                              verbose=self.args.verbose,
                              num_workers=self.args.num_workers)
         # drill.train(lp.generate())
-        print('Training is completed.')
         f1_score = F1()
         for pos, neg, true_pos, owl_cls in lp.generate():
             training_f1, predicted_cls = drill.fit(pos=pos, neg=neg)
-            print('True Class Expression',owl_cls)
+            print('True Class Expression', owl_cls)
             print('Predicted Class Expression', predicted_cls.concept)
             print('Training F1:', training_f1)
             print("F1:", f1_score(pos=true_pos, neg=neg, individuals=predicted_cls.individuals))
-            break
 
 
 if __name__ == '__main__':
@@ -125,5 +124,4 @@ if __name__ == '__main__':
     parser.add_argument("--iter_bound", type=int, default=10_000, help='iter_bound during testing.')
     parser.add_argument('--max_test_time_per_concept', type=int, default=3, help='Max. runtime during testing')
 
-    trainer = Trainer(parser.parse_args())
-    trainer.start()
+    Trainer(parser.parse_args()).start()

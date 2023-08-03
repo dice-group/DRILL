@@ -14,10 +14,9 @@ from torch import nn
 from torch.functional import F
 from torch.nn.init import xavier_normal_
 import random
-from reasoner import Nothing
 from heuristics import BinaryReward, Reward
 from metrics import F1
-
+from tqdm import tqdm
 
 class State:
     def __init__(self, concept, previous_state=None):
@@ -253,8 +252,8 @@ class DrillAverage:
         self.quality_func = quality_func
         self.search_tree = SearchTree()
         self.quality_tree = SearchTree()
-
-        self.iter_bound = 2
+        "Number of times a concept is refined at fitting time"
+        self.iter_bound = 10
         arg_net = {'input_shape': (4 * self.sample_size, self.embedding_dim),
                    'first_out_channels': self.drill_first_out_channels, 'num_output': 1, 'kernel_size': 3}
 
@@ -274,9 +273,14 @@ class DrillAverage:
         print('Number of parameters: ', sum([p.numel() for p in self.heuristic_func.net.parameters()]))
 
     def next_possible_states(self, current_state: State) -> Iterable[State]:
-        """ given a State, return all possible next states"""
+        """ given a State, return all possible next states
+
+        Next possible states can be constructed via
+
+
+        """
         return (State(concept=i, previous_state=current_state) for i in
-                self.reasoner.apply_construction_rules(current_state.concept))
+                self.reasoner.refine(current_state.concept))
 
     def exploitation(self, current_state: State, next_states: Set[State]) -> State:
         pass
@@ -308,21 +312,19 @@ class DrillAverage:
             # (1.2) Select a next state
             next_state = self.choose_next_state(current_state, next_states)
             # (1.3)
-            if isinstance(next_state.concept, Nothing):  # Dead END
+            #if isinstance(next_state.concept, Nothing):  # Dead END
                 # (1.4)
                 # path_of_concepts.append((current_state, next_state))
                 # (1.5)
                 # rewards.append(self.reward_func.calculate(current_state, next_state))
-                print('Found dead end')
-                break
-
-            else:
-                # (1.4)
-                path_of_concepts.append((current_state, next_state))
-                # (1.5)
-                current_state.individuals = self.reasoner.retrieve(concept=current_state.concept)
-                next_state.individuals = self.reasoner.retrieve(concept=next_state.concept)
-                rewards.append(self.reward_func.calculate(current_state, next_state))
+             #   print('Found dead end')
+             #   break
+            # (1.4)
+            path_of_concepts.append((current_state, next_state))
+            # (1.5)
+            current_state.individuals = self.reasoner.retrieve(concept=current_state.concept)
+            next_state.individuals = self.reasoner.retrieve(concept=next_state.concept)
+            rewards.append(self.reward_func.calculate(current_state, next_state))
             # (1.6)
             current_state = next_state
         return path_of_concepts, rewards
@@ -436,10 +438,11 @@ class DrillAverage:
 
         current_state = None
         # (3) Search starts
-        print('Learning Problem')
+        print("\n")
+        print("Fitting starts on the following learning problem:")
         print("Pos:", pos)
         print("Neg:", neg)
-        for i in range(self.iter_bound):
+        for _ in tqdm(range(self.iter_bound)):
             if current_state is None:
                 current_state = root
             else:
@@ -455,6 +458,7 @@ class DrillAverage:
 
                 self.search_tree.add(state=next_state, priority=heuristic_score)
                 self.quality_tree.add(state=next_state, priority=f1_score)
+
         return self.quality_tree.get()
 
     def terminate_training(self):
