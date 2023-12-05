@@ -3,6 +3,9 @@
 This open-source project contains the Pytorch implementation of DRILL, training and evaluation scripts. 
 To foster further reproducible research and alleviate hardware requirements to reproduce the reported results, we provide pretrained models on all datasets.
 
+# We created [Ontolearn](https://github.com/dice-group/Ontolearn) involving DRILL and many other learners
+
+
 # Installation
 Create a anaconda virtual environment and install dependencies.
 ```
@@ -129,11 +132,13 @@ Currently, we are exploring the idea of applying a pretrained DRILL that is trai
 ```
 ## How to cite
 ```
-@article{demir2021drill,
-  title={DRILL--Deep Reinforcement Learning for Refinement Operators in $$\backslash$mathcal $\{$ALC$\}$ $},
-  author={Demir, Caglar and Ngomo, Axel-Cyrille Ngonga},
-  journal={arXiv preprint arXiv:2106.15373},
-  year={2021}
+# DRILL
+@inproceedings{demir2023drill,
+  author = {Demir, Caglar and Ngomo, Axel-Cyrille Ngonga},
+  booktitle = {The 32nd International Joint Conference on Artificial Intelligence, IJCAI 2023},
+  title = {Neuro-Symbolic Class Expression Learning},
+  url = {https://www.ijcai.org/proceedings/2023/0403.pdf},
+ year={2023}
 }
 ```
 
