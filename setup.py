@@ -10,7 +10,7 @@ setup(
                 'engineering.',
     version='0.0.2',
     packages=find_packages(exclude=('tests', 'test.*', 'examples.*')),
-    install_requires=['scikit-learn==0.24.1',
+    install_requires=['scikit-learn==1.0.1',
                       'matplotlib==3.3.4',
                       'pytest==6.2.2',
                       'owlready2==0.26',
